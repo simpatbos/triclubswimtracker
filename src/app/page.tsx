@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
-import { Settings as SettingsIcon, Info, CheckCircle2, AlertCircle, AlertTriangle, ExternalLink, RefreshCw, History } from 'lucide-react';
+import { Settings as SettingsIcon, Info, CheckCircle2, AlertCircle, History } from 'lucide-react';
 import { ClassicPodium } from '@/components/ClassicPodium';
 import { ClassicLeaderboardList } from '@/components/ClassicLeaderboardList';
 import { AthleteModal } from '@/components/AthleteModal';
@@ -60,13 +60,11 @@ function SwimTracker() {
   const [leaderboardView, setLeaderboardView] = useState<'this_week' | 'challenge'>('this_week');
 
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntry[]>([]);
-  const [isCheckingClub, setIsCheckingClub] = useState<boolean>(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Read URL query feedback on load
   const authSuccess = searchParams.get('auth_success');
   const authError = searchParams.get('auth_error');
-  const notInClubParam = searchParams.get('not_in_club');
 
   const fetchLeaderboard = useCallback(async (view: 'this_week' | 'challenge') => {
     try {
@@ -92,37 +90,6 @@ function SwimTracker() {
     } catch (err) {
       console.error('Error switching leaderboard view', err);
       setLeaderboardView(newView);
-    }
-  };
-
-  const handleVerifyClubMembership = async () => {
-    setIsCheckingClub(true);
-    try {
-      const res = await fetch('/api/athletes/me/check-club', { method: 'POST' });
-      const data = await res.json();
-      if (data.inClub) {
-        if (athlete) {
-          setAthlete({ ...athlete, in_club: 1 });
-        }
-        await fetchLeaderboard(leaderboardView);
-        setToast({
-          type: 'success',
-          message: 'Membership verified! You are now visible on the leaderboard.',
-        });
-      } else {
-        setToast({
-          type: 'error',
-          message: "Strava says you haven't joined Purdue Triathlon Club (Club #8497) yet. Please click 'Join Club' on Strava.",
-        });
-      }
-    } catch (err) {
-      console.error('Club verification error:', err);
-      setToast({
-        type: 'error',
-        message: 'Could not verify club membership right now. Please try again.',
-      });
-    } finally {
-      setIsCheckingClub(false);
     }
   };
 
@@ -213,9 +180,7 @@ function SwimTracker() {
   // Determine active notification (from toast or url param)
   const activeMessage =
     toast ||
-    (notInClubParam
-      ? { type: 'error' as const, message: 'You must join the Purdue Triathlon Club on Strava (Club #8497) to appear on the leaderboard.' }
-      : authSuccess
+    (authSuccess
       ? { type: 'success' as const, message: 'Strava connected! Swims are synced.' }
       : authError
       ? { type: 'error' as const, message: `Strava error: ${authError}` }
@@ -253,52 +218,6 @@ function SwimTracker() {
             >
               ×
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Strava Club #8497 Membership Required Banner */}
-      {athlete && athlete.in_club === 0 && (
-        <div className="bg-rose-900 text-white py-3 px-4 border-b border-rose-950 animate-in fade-in duration-200">
-          <div className="max-w-xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-2.5 min-w-0">
-              <AlertTriangle className="w-4 h-4 text-amber-300 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-bold text-xs tracking-tight text-white">
-                  Action Required: Join Strava Club #8497
-                </p>
-                <p className="text-[11px] text-rose-100 mt-0.5 leading-snug">
-                  You are not in the <strong>Purdue Triathlon Club on Strava (Club #8497)</strong>. You must join the Strava club to show on the leaderboard.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 self-start sm:self-center flex-shrink-0">
-              <a
-                href="https://www.strava.com/clubs/8497"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 bg-[#fc5200] hover:bg-[#e04900] active:scale-95 text-white px-3 py-1.5 rounded-md text-xs font-bold transition-all shadow-xs"
-              >
-                <span>Join Club</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-              <button
-                type="button"
-                onClick={handleVerifyClubMembership}
-                disabled={isCheckingClub}
-                className="inline-flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 text-white px-3 py-1.5 rounded-md text-xs font-bold transition-all disabled:opacity-50 cursor-pointer border border-white/25"
-              >
-                {isCheckingClub ? (
-                  <>
-                    <RefreshCw className="w-3 h-3 animate-spin" />
-                    <span>Checking...</span>
-                  </>
-                ) : (
-                  <span>Verify</span>
-                )}
-              </button>
-            </div>
           </div>
         </div>
       )}

@@ -17,7 +17,6 @@ A classic, minimalist collegiate web application for tracking swim workouts and 
   - **Career Medals**: Automatically calculates and awards career Gold (🥇), Silver (🥈), and Bronze (🥉) finishes across completed challenge weeks—only displayed when medals have been earned.
 - **Strava OAuth 2.0 & Automatic Tracking**:
   - Connect with Strava in one click.
-  - Verifies membership in **Purdue Triathlon Club (Club #8497)** on Strava.
   - Converts meters to Short-Course Yards (SCY).
   - Background tracking keeps your standing updated even when logged out.
 - **Self-Service Settings & Sync**:

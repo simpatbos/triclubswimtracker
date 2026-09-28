@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
         username: raw.username,
         profile_url: raw.profile_url,
         last_synced_at: raw.last_synced_at,
-        in_club: raw.in_club !== undefined && raw.in_club !== null ? raw.in_club : 1,
+        in_club: 1,
       };
     }
   }

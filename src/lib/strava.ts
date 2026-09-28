@@ -287,40 +287,5 @@ export async function deauthorizeStrava(accessToken: string): Promise<boolean> {
   }
 }
 
-export const PURDUE_STRAVA_CLUB_ID = 8497;
-export const PURDUE_STRAVA_CLUB_URL = 'https://www.strava.com/clubs/8497';
 
-export interface StravaClubInfo {
-  id: number;
-  name: string;
-  url?: string;
-}
-
-/**
- * Check if the athlete is a member of Purdue Triathlon Club on Strava (Club #8497)
- */
-export async function checkAthleteInPurdueClub(accessToken: string): Promise<boolean> {
-  try {
-    const response = await fetch(`${STRAVA_API_BASE}/athlete/clubs`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-
-    if (!response.ok) {
-      console.error(`Failed to fetch athlete clubs: ${response.status} ${response.statusText}`);
-      return false;
-    }
-
-    const clubs = (await response.json()) as StravaClubInfo[];
-    if (!Array.isArray(clubs)) {
-      return false;
-    }
-
-    return clubs.some(club => club.id === PURDUE_STRAVA_CLUB_ID);
-  } catch (err) {
-    console.error('Error verifying Purdue Strava club membership:', err);
-    return false;
-  }
-}
 

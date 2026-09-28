@@ -103,12 +103,10 @@ export async function ensureDbInitialized(): Promise<void> {
   return initPromise;
 }
 
-export async function getAllAthletes(onlyClubMembers = true): Promise<Athlete[]> {
+export async function getAllAthletes(): Promise<Athlete[]> {
   await ensureDbInitialized();
   const client = getDb();
-  const sql = onlyClubMembers
-    ? 'SELECT * FROM athletes WHERE in_club = 1 OR in_club IS NULL ORDER BY firstname ASC'
-    : 'SELECT * FROM athletes ORDER BY firstname ASC';
+  const sql = 'SELECT * FROM athletes ORDER BY firstname ASC';
   const res = await client.execute(sql);
   return res.rows.map(row => ({
     id: Number(row.id),

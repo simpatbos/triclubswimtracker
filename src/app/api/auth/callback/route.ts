@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exchangeStravaCode, syncAthleteSwims, checkAthleteInPurdueClub } from '@/lib/strava';
+import { exchangeStravaCode, syncAthleteSwims } from '@/lib/strava';
 import { upsertAthlete } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
@@ -18,9 +18,6 @@ export async function GET(request: NextRequest) {
     const tokenData = await exchangeStravaCode(code);
     const { athlete, access_token, refresh_token, expires_at } = tokenData;
 
-    // Check if athlete is in Purdue Strava Club #8497
-    const inClub = await checkAthleteInPurdueClub(access_token);
-
     await upsertAthlete({
       id: athlete.id,
       firstname: athlete.firstname || 'Purdue',
@@ -30,7 +27,7 @@ export async function GET(request: NextRequest) {
       access_token,
       refresh_token,
       token_expires_at: expires_at,
-      in_club: inClub ? 1 : 0,
+      in_club: 1,
     });
 
     // Run initial swim sync in the background or await
@@ -40,8 +37,7 @@ export async function GET(request: NextRequest) {
       console.warn('Initial sync warning:', syncErr);
     }
 
-    const redirectParam = inClub ? 'auth_success=1' : 'not_in_club=1';
-    const response = NextResponse.redirect(`${origin}/?${redirectParam}&athlete_id=${athlete.id}`);
+    const response = NextResponse.redirect(`${origin}/?auth_success=1&athlete_id=${athlete.id}`);
 
     // Set HTTP-only cookie for session
     response.cookies.set('athlete_id', athlete.id.toString(), {

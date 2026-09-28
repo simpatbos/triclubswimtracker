@@ -23,8 +23,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    setAppSetting('strava_client_id', clientId.trim());
-    setAppSetting('strava_client_secret', clientSecret.trim());
+    await setAppSetting('strava_client_id', clientId.trim());
+    await setAppSetting('strava_client_secret', clientSecret.trim());
 
     return NextResponse.json({
       success: true,

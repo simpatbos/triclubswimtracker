@@ -8,8 +8,8 @@ export interface Athlete {
   refresh_token?: string;
   token_expires_at?: number;
   last_synced_at?: number | null;
+  in_club?: number;
   created_at: number;
-  is_demo: boolean;
 }
 
 export interface Swim {
@@ -24,7 +24,6 @@ export interface Swim {
   start_date_local: string;
   start_timestamp: number; // epoch ms
   average_speed: number; // m/s
-  is_demo: boolean;
 }
 
 export interface LeaderboardPeriodStats {
@@ -33,6 +32,8 @@ export interface LeaderboardPeriodStats {
   movingTimeSeconds: number;
   avgPacePer100YdSeconds: number;
   longestSwimYards: number;
+  swimsPerWeek?: number;
+  yardsPerWeek?: number;
 }
 
 export interface LeaderboardEntry {
@@ -43,7 +44,6 @@ export interface LeaderboardEntry {
     lastname: string;
     username: string | null;
     profile_url: string | null;
-    is_demo: boolean;
     last_synced_at?: number | null;
   };
   currentPeriod: LeaderboardPeriodStats;
@@ -60,7 +60,7 @@ export interface LeaderboardEntry {
   recentSwims?: Swim[];
 }
 
-export type TimeframeOption = 'this_week' | 'since_last_week' | 'last_week' | 'all_time';
+export type TimeframeOption = 'this_week' | 'challenge' | 'since_last_week' | 'last_week' | 'all_time';
 export type MetricOption = 'yards' | 'swims' | 'time';
 
 export interface StravaTokenResponse {

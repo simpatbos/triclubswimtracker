@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncSingleActivity } from '@/lib/strava';
+import { deleteSwim } from '@/lib/db';
 
 /**
  * Strava Webhook Verification (Handshake)
@@ -37,6 +38,9 @@ export async function POST(request: NextRequest) {
       syncSingleActivity(athleteId, activityId).catch(err => {
         console.error(`Webhook sync failed for activity ${activityId}:`, err);
       });
+    } else if (event.object_type === 'activity' && event.aspect_type === 'delete') {
+      const activityId = event.object_id;
+      await deleteSwim(activityId);
     }
 
     // Strava requires a 200 response within 2 seconds

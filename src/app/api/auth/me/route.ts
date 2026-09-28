@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
 
   let athlete = null;
   if (athleteId && !isNaN(athleteId)) {
-    const raw = getAthleteById(athleteId);
+    const raw = await getAthleteById(athleteId);
     if (raw) {
       athlete = {
         id: raw.id,
@@ -16,8 +16,8 @@ export async function GET(request: NextRequest) {
         lastname: raw.lastname,
         username: raw.username,
         profile_url: raw.profile_url,
-        is_demo: raw.is_demo,
         last_synced_at: raw.last_synced_at,
+        in_club: raw.in_club !== undefined && raw.in_club !== null ? raw.in_club : 1,
       };
     }
   }

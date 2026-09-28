@@ -46,14 +46,144 @@ export function getWeekBounds(referenceDate = new Date()): {
   };
 }
 
+/**
+ * Challenge kickoff Monday: September 14, 2026 (00:00:00 local time)
+ * Week 1: Sep 14 - Sep 20
+ * Week 2 (Current week): Sep 21 - Sep 27
+ */
+export const CHALLENGE_START_DATE_STR = '2026-09-14';
+
+export function parseChallengeStartDate(dateStr = CHALLENGE_START_DATE_STR): Date {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
+}
+
+export function getChallengeBounds(referenceDate = new Date()): {
+  challengeStart: Date;
+  challengeEnd: Date;
+  challengeWeeksCount: number;
+} {
+  const challengeStart = parseChallengeStartDate();
+  const { lastWeekEnd } = getWeekBounds(referenceDate);
+
+  // Requirement: Only completed weeks are included in challenge stats (exclude current week)
+  if (lastWeekEnd.getTime() < challengeStart.getTime()) {
+    return {
+      challengeStart,
+      challengeEnd: new Date(challengeStart.getTime() - 1),
+      challengeWeeksCount: 0,
+    };
+  }
+
+  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+  const diffMs = lastWeekEnd.getTime() - challengeStart.getTime();
+  const challengeWeeksCount = Math.max(1, Math.round(diffMs / msPerWeek));
+
+  const challengeEnd = new Date(lastWeekEnd);
+
+  return {
+    challengeStart,
+    challengeEnd,
+    challengeWeeksCount,
+  };
+}
+
+export interface WeeklyComparisonWindow {
+  currentDayIndex: number; // 1 = Mon ... 7 = Sun
+  thisWeekStartMs: number;
+  thisWeekNowMs: number;
+  lastWeekStartMs: number;
+  lastWeekCompletedDaysEndMs: number;
+  lastWeekThroughTodayEndMs: number;
+}
+
+/**
+ * Calculates day-of-week comparison windows for Weekly Leaderboard (+-) pacing badge.
+ * - Compares swims completed so far this week against equivalent elapsed days last week.
+ * - On Monday before swimming, if matched completed days: 0 (±0).
+ * - After Monday, if you haven't swam when you did last week: -1.
+ */
+export function getWeeklyComparisonWindow(referenceDate = new Date()): WeeklyComparisonWindow {
+  const { thisWeekStart, lastWeekStart } = getWeekBounds(referenceDate);
+  const now = new Date(referenceDate);
+
+  const currentDay = now.getDay();
+  // In JS: Sun=0 -> 7, Mon=1 -> 1, ..., Sat=6 -> 6
+  const currentDayIndex = currentDay === 0 ? 7 : currentDay;
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const completedDaysCount = currentDayIndex - 1;
+
+  const thisWeekStartMs = thisWeekStart.getTime();
+  const thisWeekNowMs = now.getTime();
+
+  const lastWeekStartMs = lastWeekStart.getTime();
+  const lastWeekCompletedDaysEndMs =
+    completedDaysCount > 0
+      ? lastWeekStartMs + completedDaysCount * msPerDay - 1
+      : lastWeekStartMs - 1;
+
+  const lastWeekThroughTodayEndMs =
+    lastWeekStartMs + currentDayIndex * msPerDay - 1;
+
+  return {
+    currentDayIndex,
+    thisWeekStartMs,
+    thisWeekNowMs,
+    lastWeekStartMs,
+    lastWeekCompletedDaysEndMs,
+    lastWeekThroughTodayEndMs,
+  };
+}
+
+export interface CompletedWeekConfig {
+  weekNumber: number;
+  label: string;
+  dateRange: string;
+  startMs: number;
+  endMs: number;
+}
+
+/**
+ * Returns list of completed challenge weeks (for Previous Weeks modal archive)
+ */
+export function getCompletedChallengeWeeks(referenceDate = new Date()): CompletedWeekConfig[] {
+  const { challengeEnd, challengeWeeksCount } = getChallengeBounds(referenceDate);
+  const formatDate = (d: Date) =>
+    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  if (challengeWeeksCount === 0) return [];
+
+  const weeks: CompletedWeekConfig[] = [];
+  for (let w = challengeWeeksCount; w >= 1; w--) {
+    const weeksAgo = challengeWeeksCount - w;
+    const end = new Date(challengeEnd.getTime() - weeksAgo * 7 * 24 * 60 * 60 * 1000);
+    const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000 + 1);
+    start.setHours(0, 0, 0, 0);
+
+    const label = `Week ${w}`;
+
+    weeks.push({
+      weekNumber: w,
+      label,
+      dateRange: `${formatDate(start)} - ${formatDate(end)}`,
+      startMs: start.getTime(),
+      endMs: end.getTime(),
+    });
+  }
+
+  return weeks;
+}
+
 export function getDateRangeForOption(
-  option: 'this_week' | 'since_last_week' | 'last_week' | 'all_time',
+  option: 'this_week' | 'challenge' | 'since_last_week' | 'last_week' | 'all_time',
   referenceDate = new Date()
 ): {
   current: DateRange;
   comparison: DateRange;
 } {
   const { thisWeekStart, thisWeekEnd, lastWeekStart, lastWeekEnd } = getWeekBounds(referenceDate);
+  const { challengeStart, challengeEnd, challengeWeeksCount } = getChallengeBounds(referenceDate);
 
   const formatDate = (d: Date) =>
     d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -72,6 +202,26 @@ export function getDateRangeForOption(
           endMs: lastWeekEnd.getTime(),
           label: 'Last Week',
           sublabel: `${formatDate(lastWeekStart)} - ${formatDate(lastWeekEnd)}`,
+        },
+      };
+
+    case 'challenge':
+    case 'all_time':
+    default:
+      return {
+        current: {
+          startMs: challengeStart.getTime(),
+          endMs: challengeEnd.getTime(),
+          label: 'Swim Challenge',
+          sublabel: challengeWeeksCount > 0
+            ? `${formatDate(challengeStart)} - ${formatDate(challengeEnd)} (${challengeWeeksCount} Completed ${challengeWeeksCount === 1 ? 'Wk' : 'Wks'})`
+            : `${formatDate(challengeStart)} - Kickoff Week (Awaiting 1st Completed Wk)`,
+        },
+        comparison: {
+          startMs: challengeStart.getTime() - Math.max(1, challengeWeeksCount) * 7 * 24 * 60 * 60 * 1000,
+          endMs: challengeStart.getTime() - 1,
+          label: 'Prior Period',
+          sublabel: '',
         },
       };
 
@@ -105,23 +255,6 @@ export function getDateRangeForOption(
           endMs: lastWeekStart.getTime() - 1,
           label: '2 Weeks Ago',
           sublabel: 'Prior week',
-        },
-      };
-
-    case 'all_time':
-    default:
-      return {
-        current: {
-          startMs: 0,
-          endMs: Date.now() + 86400000,
-          label: 'All Time',
-          sublabel: 'Entire season history',
-        },
-        comparison: {
-          startMs: 0,
-          endMs: 0,
-          label: 'N/A',
-          sublabel: '',
         },
       };
   }
@@ -174,3 +307,86 @@ export function calculatePacePer100Yd(seconds: number, yards: number): string {
   const secs = Math.floor(secPer100 % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}/100yd`;
 }
+
+export interface WeekSummary {
+  weekNumber: number;
+  label: string;
+  dateRange: string;
+  startMs: number;
+  endMs: number;
+  totalYards: number;
+  totalSwims: number;
+  totalSeconds: number;
+  avgPace: string;
+}
+
+export function getChallengeWeeklyBreakdown(
+  swims: { distance_yards: number; moving_time: number; start_timestamp: number }[],
+  referenceDate = new Date()
+): WeekSummary[] {
+  const { challengeStart, challengeEnd, challengeWeeksCount } = getChallengeBounds(referenceDate);
+  const { lastWeekEnd } = getWeekBounds(referenceDate);
+
+  const formatDate = (d: Date) =>
+    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  if (challengeWeeksCount === 0 || lastWeekEnd.getTime() < challengeStart.getTime()) {
+    return [];
+  }
+
+  const weeksConfig: {
+    weekNumber: number;
+    label: string;
+    dateRange: string;
+    startMs: number;
+    endMs: number;
+  }[] = [];
+
+  for (let w = challengeWeeksCount; w >= 1; w--) {
+    const weeksAgo = challengeWeeksCount - w;
+    const weekEnd = new Date(challengeEnd.getTime() - weeksAgo * 7 * 24 * 60 * 60 * 1000);
+    const weekStart = new Date(weekEnd.getTime() - 7 * 24 * 60 * 60 * 1000 + 1);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const label = `Week ${w}`;
+
+    weeksConfig.push({
+      weekNumber: w,
+      label,
+      dateRange: `${formatDate(weekStart)} - ${formatDate(weekEnd)}`,
+      startMs: weekStart.getTime(),
+      endMs: weekEnd.getTime(),
+    });
+  }
+
+  return weeksConfig.map(wc => {
+    const weekSwims = swims.filter(
+      s => s.start_timestamp >= wc.startMs && s.start_timestamp <= wc.endMs
+    );
+    const totalYards = weekSwims.reduce((acc, s) => acc + s.distance_yards, 0);
+    const totalSeconds = weekSwims.reduce((acc, s) => acc + s.moving_time, 0);
+    const totalSwims = weekSwims.length;
+    const avgPace = calculatePacePer100Yd(totalSeconds, totalYards);
+
+    return {
+      ...wc,
+      totalYards: Math.round(totalYards),
+      totalSwims,
+      totalSeconds,
+      avgPace,
+    };
+  });
+}
+
+/**
+ * Format swims per week rounded to tenths (1 decimal place)
+ */
+export function formatSwimsPerWeek(swims: number): string {
+  if (swims === null || swims === undefined || isNaN(swims)) return '0';
+  const rounded = Math.round(swims * 10) / 10;
+  return rounded.toLocaleString('en-US', {
+    maximumFractionDigits: 1,
+  });
+}
+
+

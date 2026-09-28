@@ -4,6 +4,7 @@ import {
   updateAthleteLastSynced,
   upsertAthlete,
   upsertSwim,
+  reconcileAthleteSwims,
   getAppSetting,
 } from './db';
 import { metersToYards } from './date-utils';
@@ -101,7 +102,7 @@ export async function getValidAccessToken(athlete: Athlete): Promise<string> {
     }
 
     const refreshData = await response.json();
-    upsertAthlete({
+    await upsertAthlete({
       id: athlete.id,
       firstname: athlete.firstname,
       lastname: athlete.lastname,
@@ -110,7 +111,6 @@ export async function getValidAccessToken(athlete: Athlete): Promise<string> {
       access_token: refreshData.access_token,
       refresh_token: refreshData.refresh_token,
       token_expires_at: refreshData.expires_at,
-      is_demo: athlete.is_demo,
     });
 
     return refreshData.access_token;
@@ -136,44 +136,66 @@ export async function syncAthleteSwims(
   athleteId: number,
   lookbackDays = 60
 ): Promise<{ syncedCount: number; swimCount: number }> {
-  const athlete = getAthleteById(athleteId);
+  const athlete = await getAthleteById(athleteId);
   if (!athlete) {
     throw new Error(`Athlete ${athleteId} not found`);
-  }
-
-  // If this is a demo athlete, just update the sync timestamp
-  if (athlete.is_demo) {
-    updateAthleteLastSynced(athleteId);
-    return { syncedCount: 0, swimCount: 0 };
   }
 
   const token = await getValidAccessToken(athlete);
   const afterTimestamp = Math.floor((Date.now() - lookbackDays * 24 * 60 * 60 * 1000) / 1000);
 
-  const url = `${STRAVA_API_BASE}/athlete/activities?after=${afterTimestamp}&per_page=100`;
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+  const allActivities: StravaRawActivity[] = [];
+  let page = 1;
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch Strava activities: ${response.status} ${response.statusText}`);
+  while (true) {
+    const url = `${STRAVA_API_BASE}/athlete/activities?after=${afterTimestamp}&page=${page}&per_page=100`;
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let detail = errorText;
+      try {
+        const parsed = JSON.parse(errorText);
+        if (parsed.errors?.[0]?.code === 'Inactive') {
+          detail = 'Your Strava Developer Application is marked "Inactive" on strava.com/settings/api. Strava requires the application owner account to have an active Strava subscription/developer verification.';
+        } else if (parsed.message) {
+          detail = `${parsed.message} (${JSON.stringify(parsed.errors || [])})`;
+        }
+      } catch {
+        // fallback to raw text
+      }
+      throw new Error(`Strava API (${response.status}): ${detail}`);
+    }
+
+    const activities = (await response.json()) as StravaRawActivity[];
+    allActivities.push(...activities);
+
+    if (activities.length < 100 || page >= 5) {
+      break;
+    }
+    page++;
   }
 
-  const activities = (await response.json()) as StravaRawActivity[];
-
   // Filter only swim activities
-  const swims = activities.filter(
+  const swims = allActivities.filter(
     a => a.type === 'Swim' || a.sport_type === 'Swim'
   );
+
+  // Reconcile: delete any swims previously saved for this athlete within the lookback window
+  // that were deleted or modified away on Strava
+  const swimIds = swims.map(s => s.id);
+  await reconcileAthleteSwims(athleteId, afterTimestamp * 1000, swimIds);
 
   let syncedCount = 0;
   for (const act of swims) {
     const startTimestamp = new Date(act.start_date).getTime();
     const yards = metersToYards(act.distance);
 
-    upsertSwim({
+    await upsertSwim({
       id: act.id,
       athlete_id: athleteId,
       name: act.name || 'Purdue Tri Swim Workout',
@@ -185,12 +207,11 @@ export async function syncAthleteSwims(
       start_date_local: act.start_date_local,
       start_timestamp: startTimestamp,
       average_speed: act.average_speed || 0,
-      is_demo: false,
     });
     syncedCount++;
   }
 
-  updateAthleteLastSynced(athleteId);
+  await updateAthleteLastSynced(athleteId);
 
   return {
     syncedCount,
@@ -205,7 +226,7 @@ export async function syncSingleActivity(
   athleteId: number,
   activityId: number
 ): Promise<boolean> {
-  const athlete = getAthleteById(athleteId);
+  const athlete = await getAthleteById(athleteId);
   if (!athlete) return false;
 
   const token = await getValidAccessToken(athlete);
@@ -227,7 +248,7 @@ export async function syncSingleActivity(
     const startTimestamp = new Date(act.start_date).getTime();
     const yards = metersToYards(act.distance);
 
-    upsertSwim({
+    await upsertSwim({
       id: act.id,
       athlete_id: athleteId,
       name: act.name || 'Purdue Tri Swim Workout',
@@ -239,12 +260,67 @@ export async function syncSingleActivity(
       start_date_local: act.start_date_local,
       start_timestamp: startTimestamp,
       average_speed: act.average_speed || 0,
-      is_demo: false,
     });
 
-    updateAthleteLastSynced(athleteId);
+    await updateAthleteLastSynced(athleteId);
     return true;
   }
 
   return false;
 }
+
+export async function deauthorizeStrava(accessToken: string): Promise<boolean> {
+  try {
+    const response = await fetch('https://www.strava.com/oauth/deauthorize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        access_token: accessToken,
+      }),
+    });
+    return response.ok;
+  } catch (err) {
+    console.error('Failed to deauthorize Strava token:', err);
+    return false;
+  }
+}
+
+export const PURDUE_STRAVA_CLUB_ID = 8497;
+export const PURDUE_STRAVA_CLUB_URL = 'https://www.strava.com/clubs/8497';
+
+export interface StravaClubInfo {
+  id: number;
+  name: string;
+  url?: string;
+}
+
+/**
+ * Check if the athlete is a member of Purdue Triathlon Club on Strava (Club #8497)
+ */
+export async function checkAthleteInPurdueClub(accessToken: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${STRAVA_API_BASE}/athlete/clubs`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`Failed to fetch athlete clubs: ${response.status} ${response.statusText}`);
+      return false;
+    }
+
+    const clubs = (await response.json()) as StravaClubInfo[];
+    if (!Array.isArray(clubs)) {
+      return false;
+    }
+
+    return clubs.some(club => club.id === PURDUE_STRAVA_CLUB_ID);
+  } catch (err) {
+    console.error('Error verifying Purdue Strava club membership:', err);
+    return false;
+  }
+}
+

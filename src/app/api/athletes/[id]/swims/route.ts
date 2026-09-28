@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAthleteById, getAthleteSwims } from '@/lib/db';
+import { getAthleteById, getAthleteSwims, getAthleteMedalCount } from '@/lib/db';
 
 export async function GET(
   request: NextRequest,
@@ -12,12 +12,15 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid athlete ID' }, { status: 400 });
   }
 
-  const athlete = getAthleteById(athleteId);
+  const athlete = await getAthleteById(athleteId);
   if (!athlete) {
     return NextResponse.json({ error: 'Athlete not found' }, { status: 404 });
   }
 
-  const swims = getAthleteSwims(athleteId, 30);
+  const [swims, medals] = await Promise.all([
+    getAthleteSwims(athleteId, 30),
+    getAthleteMedalCount(athleteId),
+  ]);
 
   return NextResponse.json({
     athlete: {
@@ -26,9 +29,9 @@ export async function GET(
       lastname: athlete.lastname,
       username: athlete.username,
       profile_url: athlete.profile_url,
-      is_demo: athlete.is_demo,
       last_synced_at: athlete.last_synced_at,
     },
     swims,
+    medals,
   });
 }

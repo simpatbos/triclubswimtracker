@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  const athlete = getAthleteById(athleteId);
+  const athlete = await getAthleteById(athleteId);
   if (!athlete) {
     return NextResponse.json({ error: 'Athlete not found' }, { status: 404 });
   }

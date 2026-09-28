@@ -1,282 +1,164 @@
-import Database from 'better-sqlite3';
+import { createClient, Client } from '@libsql/client';
 import path from 'path';
 import fs from 'fs';
 import { Athlete, Swim, LeaderboardEntry, TimeframeOption, MetricOption } from '../types';
-import { getDateRangeForOption, metersToYards } from './date-utils';
+import { getDateRangeForOption, getChallengeBounds, getWeeklyComparisonWindow, getCompletedChallengeWeeks } from './date-utils';
 
-// Ensure data folder exists
-const DB_DIR = path.join(process.cwd(), 'data');
-if (!fs.existsSync(DB_DIR)) {
-  fs.mkdirSync(DB_DIR, { recursive: true });
-}
-
-const DB_PATH = path.join(DB_DIR, 'swimtracker.db');
-
-// Global singleton to persist across hot-reloads in Next.js development
 declare global {
-  // eslint-disable-next-line no-var
-  var __db: Database.Database | undefined;
+  var __libsql_client: Client | undefined;
+  var __db_initialized: boolean | undefined;
 }
 
-export function getDb(): Database.Database {
-  if (!global.__db) {
-    const db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    initTables(db);
-    global.__db = db;
-  }
-  return global.__db;
-}
+const appSettingsCache: Record<string, string> = {};
+let initPromise: Promise<void> | null = null;
 
-function initTables(db: Database.Database) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS athletes (
-      id INTEGER PRIMARY KEY,
-      firstname TEXT NOT NULL,
-      lastname TEXT NOT NULL,
-      username TEXT,
-      profile_url TEXT,
-      access_token TEXT,
-      refresh_token TEXT,
-      token_expires_at INTEGER,
-      last_synced_at INTEGER,
-      created_at INTEGER NOT NULL,
-      is_demo INTEGER NOT NULL DEFAULT 0
-    );
+export function getDb(): Client {
+  if (!global.__libsql_client) {
+    const isTurso = Boolean(process.env.TURSO_DATABASE_URL);
+    let url = process.env.TURSO_DATABASE_URL;
 
-    CREATE TABLE IF NOT EXISTS swims (
-      id INTEGER PRIMARY KEY,
-      athlete_id INTEGER NOT NULL REFERENCES athletes(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      distance_meters REAL NOT NULL,
-      distance_yards REAL NOT NULL,
-      moving_time INTEGER NOT NULL,
-      elapsed_time INTEGER NOT NULL,
-      start_date TEXT NOT NULL,
-      start_date_local TEXT NOT NULL,
-      start_timestamp INTEGER NOT NULL,
-      average_speed REAL NOT NULL,
-      is_demo INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS app_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_swims_athlete_time ON swims(athlete_id, start_timestamp);
-    CREATE INDEX IF NOT EXISTS idx_swims_time ON swims(start_timestamp);
-  `);
-
-  // If table is empty, auto-seed with Purdue Tri Club demo members
-  const count = db.prepare('SELECT COUNT(*) as c FROM athletes').get() as { c: number };
-  if (count.c === 0) {
-    seedDemoAthletesAndSwims(db);
-  }
-}
-
-// Demo data generator with realistic Purdue Tri swimmers
-export function seedDemoAthletesAndSwims(db = getDb()) {
-  const now = Date.now();
-  const DAY = 24 * 60 * 60 * 1000;
-
-  const demoAthletes = [
-    {
-      id: 9001,
-      firstname: 'Sarah',
-      lastname: 'Jenkins',
-      username: 'sjenkins_tri',
-      profile_url: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=256&q=80',
-      is_demo: 1,
-    },
-    {
-      id: 9002,
-      firstname: 'Pete',
-      lastname: 'Boilermaker',
-      username: 'pete_boilerhammer',
-      profile_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=256&q=80',
-      is_demo: 1,
-    },
-    {
-      id: 9003,
-      firstname: 'Maya',
-      lastname: 'Patel',
-      username: 'mayaswims',
-      profile_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
-      is_demo: 1,
-    },
-    {
-      id: 9004,
-      firstname: 'Tyler',
-      lastname: 'Vance',
-      username: 'tvance_purdue',
-      profile_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=256&q=80',
-      is_demo: 1,
-    },
-    {
-      id: 9005,
-      firstname: 'Jordan',
-      lastname: 'Lee',
-      username: 'jordan_tri_lee',
-      profile_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
-      is_demo: 1,
-    },
-    {
-      id: 9006,
-      firstname: 'Chris',
-      lastname: 'Walker',
-      username: 'cwalker_boiler',
-      profile_url: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=256&q=80',
-      is_demo: 1,
-    },
-  ];
-
-  const insertAthlete = db.prepare(`
-    INSERT OR REPLACE INTO athletes (id, firstname, lastname, username, profile_url, created_at, is_demo, last_synced_at)
-    VALUES (@id, @firstname, @lastname, @username, @profile_url, @created_at, @is_demo, @last_synced_at)
-  `);
-
-  const insertSwim = db.prepare(`
-    INSERT OR REPLACE INTO swims (
-      id, athlete_id, name, distance_meters, distance_yards,
-      moving_time, elapsed_time, start_date, start_date_local,
-      start_timestamp, average_speed, is_demo
-    ) VALUES (
-      @id, @athlete_id, @name, @distance_meters, @distance_yards,
-      @moving_time, @elapsed_time, @start_date, @start_date_local,
-      @start_timestamp, @average_speed, @is_demo
-    )
-  `);
-
-  const tx = db.transaction(() => {
-    // Insert athletes
-    for (const a of demoAthletes) {
-      insertAthlete.run({
-        ...a,
-        created_at: now - 30 * DAY,
-        last_synced_at: now - 3600000,
-      });
+    if (!isTurso) {
+      const dbDir = path.join(process.cwd(), 'data');
+      if (!fs.existsSync(dbDir)) {
+        try {
+          fs.mkdirSync(dbDir, { recursive: true });
+        } catch {
+          // ignore if read-only
+        }
+      }
+      url = `file:${path.join(dbDir, 'swimtracker.db')}`;
     }
 
-    // Workouts templates for realistic swim distances (SCY yards)
-    // 1 yard = 0.9144 meters
-    const yardsToMeters = (yds: number) => yds * 0.9144;
-
-    const demoSwimConfigs = [
-      // Sarah Jenkins (Leader: 5 swims this week ~18,200 yds, 4 swims last week ~14,000 yds)
-      { athlete_id: 9001, daysAgo: 0.5, name: 'Morning Purdue Co-Rec Threshold Set', yards: 4200, paceSec: 72 },
-      { athlete_id: 9001, daysAgo: 2, name: 'Tri Club Tuesday Aerobic Ladder', yards: 3800, paceSec: 74 },
-      { athlete_id: 9001, daysAgo: 3.5, name: 'Sprint 100s & IM Drills', yards: 3200, paceSec: 71 },
-      { athlete_id: 9001, daysAgo: 5, name: 'Friday Endurance Boilermaker Block', yards: 4500, paceSec: 75 },
-      { athlete_id: 9001, daysAgo: 6, name: 'Recovery Warmdown & Scull', yards: 2500, paceSec: 80 },
-      // Last week for Sarah
-      { athlete_id: 9001, daysAgo: 8, name: 'Purdue Tri Club Mid-week Distance', yards: 4000, paceSec: 74 },
-      { athlete_id: 9001, daysAgo: 10, name: 'Fast 50s + Technique Focus', yards: 3000, paceSec: 71 },
-      { athlete_id: 9001, daysAgo: 12, name: 'Sunday Long Aerobic Swim', yards: 4500, paceSec: 76 },
-      { athlete_id: 9001, daysAgo: 13.5, name: 'Pre-meet Taper Workout', yards: 2500, paceSec: 73 },
-
-      // Pete Boilermaker (4 swims this week ~14,500 yds, 4 last week ~13,000 yds)
-      { athlete_id: 9002, daysAgo: 1, name: 'Hammer Time: 10x400 SCY Descending', yards: 4000, paceSec: 77 },
-      { athlete_id: 9002, daysAgo: 3, name: 'Wednesday Night Pool Session', yards: 3500, paceSec: 79 },
-      { athlete_id: 9002, daysAgo: 4.5, name: 'Sprint Tri Prep - Drafting Drills', yards: 3000, paceSec: 76 },
-      { athlete_id: 9002, daysAgo: 6, name: 'Saturday Boilerman Course Prep', yards: 4000, paceSec: 78 },
-      // Last week Pete
-      { athlete_id: 9002, daysAgo: 8.5, name: 'Boiler Aquatic Center Interval Grind', yards: 3500, paceSec: 78 },
-      { athlete_id: 9002, daysAgo: 10, name: 'Aerobic Base Building', yards: 3500, paceSec: 80 },
-      { athlete_id: 9002, daysAgo: 12, name: '500s on the 7:00 pace', yards: 3000, paceSec: 79 },
-      { athlete_id: 9002, daysAgo: 13, name: 'Club Shakeout Swim', yards: 3000, paceSec: 82 },
-
-      // Maya Patel (4 swims this week ~13,200 yds, 3 last week ~9,500 yds)
-      { athlete_id: 9003, daysAgo: 1, name: 'Morning Masters SCY Set', yards: 3400, paceSec: 75 },
-      { athlete_id: 9003, daysAgo: 2.5, name: 'Stroke & Tempo Work', yards: 3200, paceSec: 76 },
-      { athlete_id: 9003, daysAgo: 4, name: 'Threshold 200s with Tri Club', yards: 3600, paceSec: 74 },
-      { athlete_id: 9003, daysAgo: 5.5, name: 'Endurance Swim 3000', yards: 3000, paceSec: 77 },
-      // Last week Maya
-      { athlete_id: 9003, daysAgo: 9, name: 'Technique & Pull buoy Set', yards: 3000, paceSec: 76 },
-      { athlete_id: 9003, daysAgo: 11, name: 'Aerobic Pyramid 100-200-300-400', yards: 3500, paceSec: 76 },
-      { athlete_id: 9003, daysAgo: 13, name: 'Easy Recovery Swim', yards: 3000, paceSec: 80 },
-
-      // Chris Walker (3 swims this week ~10,800 yds, 4 last week ~13,500 yds)
-      { athlete_id: 9006, daysAgo: 1.5, name: 'Long Open-Water Simulation', yards: 4000, paceSec: 81 },
-      { athlete_id: 9006, daysAgo: 3.5, name: 'Triathlon Pace Work 10x200', yards: 3800, paceSec: 79 },
-      { athlete_id: 9006, daysAgo: 5, name: 'Power Sprints with Fins', yards: 3000, paceSec: 76 },
-      // Last week Chris
-      { athlete_id: 9006, daysAgo: 8, name: 'Purdue Co-Rec Early Bird', yards: 3500, paceSec: 81 },
-      { athlete_id: 9006, daysAgo: 10, name: 'Threshold Pyramids', yards: 3500, paceSec: 80 },
-      { athlete_id: 9006, daysAgo: 11.5, name: 'Long Course Simulation', yards: 3500, paceSec: 82 },
-      { athlete_id: 9006, daysAgo: 13, name: 'Club Social Swim', yards: 3000, paceSec: 83 },
-
-      // Tyler Vance (3 swims this week ~9,000 yds, 3 last week ~8,500 yds)
-      { athlete_id: 9004, daysAgo: 1.2, name: 'Speed Work: 16x50 fast', yards: 2800, paceSec: 70 },
-      { athlete_id: 9004, daysAgo: 3, name: 'Tri Club Evening Practice', yards: 3200, paceSec: 73 },
-      { athlete_id: 9004, daysAgo: 5.5, name: 'Saturday SCY Challenge', yards: 3000, paceSec: 72 },
-      // Last week Tyler
-      { athlete_id: 9004, daysAgo: 8.5, name: 'Sprint Sets & Starts', yards: 2500, paceSec: 69 },
-      { athlete_id: 9004, daysAgo: 10.5, name: 'Aerobic Mid-distance', yards: 3000, paceSec: 72 },
-      { athlete_id: 9004, daysAgo: 12.5, name: 'Long Recovery Laps', yards: 3000, paceSec: 75 },
-
-      // Jordan Lee (2 swims this week ~6,000 yds, 2 last week ~5,500 yds)
-      { athlete_id: 9005, daysAgo: 2, name: 'Technique Drills & Catch-up', yards: 3000, paceSec: 86 },
-      { athlete_id: 9005, daysAgo: 4, name: 'Boilermaker Pool Laps', yards: 3000, paceSec: 85 },
-      // Last week Jordan
-      { athlete_id: 9005, daysAgo: 9, name: 'Catch & Pull Focus', yards: 2500, paceSec: 88 },
-      { athlete_id: 9005, daysAgo: 12, name: 'Sunday Easy Swim', yards: 3000, paceSec: 87 },
-    ];
-
-    let swimId = 10001;
-    for (const item of demoSwimConfigs) {
-      const swimTimestamp = now - Math.round(item.daysAgo * DAY);
-      const meters = yardsToMeters(item.yards);
-      // paceSec is seconds per 100 yards
-      // moving_time = (yards / 100) * paceSec
-      const movingTime = Math.round((item.yards / 100) * item.paceSec);
-      const avgSpeed = meters / movingTime; // m/s
-      const isoDate = new Date(swimTimestamp).toISOString();
-
-      insertSwim.run({
-        id: swimId++,
-        athlete_id: item.athlete_id,
-        name: item.name,
-        distance_meters: meters,
-        distance_yards: item.yards,
-        moving_time: movingTime,
-        elapsed_time: movingTime + 180, // slight rest
-        start_date: isoDate,
-        start_date_local: isoDate,
-        start_timestamp: swimTimestamp,
-        average_speed: avgSpeed,
-        is_demo: 1,
-      });
-    }
-  });
-
-  tx();
+    global.__libsql_client = createClient({
+      url: url!,
+      authToken: process.env.TURSO_AUTH_TOKEN,
+    });
+  }
+  return global.__libsql_client;
 }
 
-// Data access queries
-export function getAllAthletes(includeDemo = true): Athlete[] {
-  const db = getDb();
-  const query = includeDemo
-    ? 'SELECT * FROM athletes ORDER BY firstname ASC'
-    : 'SELECT * FROM athletes WHERE is_demo = 0 ORDER BY firstname ASC';
-  return (db.prepare(query).all() as Athlete[]).map(a => ({
-    ...a,
-    is_demo: Boolean(a.is_demo),
+export async function ensureDbInitialized(): Promise<void> {
+  if (global.__db_initialized) return;
+  if (!initPromise) {
+    initPromise = (async () => {
+      const client = getDb();
+      await client.executeMultiple(`
+        CREATE TABLE IF NOT EXISTS athletes (
+          id INTEGER PRIMARY KEY,
+          firstname TEXT NOT NULL,
+          lastname TEXT NOT NULL,
+          username TEXT,
+          profile_url TEXT,
+          access_token TEXT,
+          refresh_token TEXT,
+          token_expires_at INTEGER,
+          last_synced_at INTEGER,
+          in_club INTEGER DEFAULT 1,
+          created_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS swims (
+          id INTEGER PRIMARY KEY,
+          athlete_id INTEGER NOT NULL REFERENCES athletes(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          distance_meters REAL NOT NULL,
+          distance_yards REAL NOT NULL,
+          moving_time INTEGER NOT NULL,
+          elapsed_time INTEGER NOT NULL,
+          start_date TEXT NOT NULL,
+          start_date_local TEXT NOT NULL,
+          start_timestamp INTEGER NOT NULL,
+          average_speed REAL NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS app_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_swims_athlete_time ON swims(athlete_id, start_timestamp);
+        CREATE INDEX IF NOT EXISTS idx_swims_time ON swims(start_timestamp);
+      `);
+
+      try {
+        await client.execute(`ALTER TABLE athletes ADD COLUMN in_club INTEGER DEFAULT 1;`);
+      } catch {
+        // column already exists
+      }
+
+      try {
+        const settingsRes = await client.execute('SELECT key, value FROM app_settings');
+        for (const row of settingsRes.rows) {
+          if (row.key && row.value) {
+            appSettingsCache[String(row.key)] = String(row.value);
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      global.__db_initialized = true;
+    })();
+  }
+  return initPromise;
+}
+
+export async function getAllAthletes(onlyClubMembers = true): Promise<Athlete[]> {
+  await ensureDbInitialized();
+  const client = getDb();
+  const sql = onlyClubMembers
+    ? 'SELECT * FROM athletes WHERE in_club = 1 OR in_club IS NULL ORDER BY firstname ASC'
+    : 'SELECT * FROM athletes ORDER BY firstname ASC';
+  const res = await client.execute(sql);
+  return res.rows.map(row => ({
+    id: Number(row.id),
+    firstname: String(row.firstname || ''),
+    lastname: String(row.lastname || ''),
+    username: row.username ? String(row.username) : null,
+    profile_url: row.profile_url ? String(row.profile_url) : null,
+    access_token: String(row.access_token || ''),
+    refresh_token: String(row.refresh_token || ''),
+    token_expires_at: Number(row.token_expires_at || 0),
+    last_synced_at: row.last_synced_at ? Number(row.last_synced_at) : null,
+    in_club: row.in_club !== undefined && row.in_club !== null ? Number(row.in_club) : 1,
+    created_at: Number(row.created_at || Date.now()),
   }));
 }
 
-export function getAthleteById(id: number): Athlete | null {
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM athletes WHERE id = ?').get(id) as Athlete | undefined;
-  if (!row) return null;
+export async function getAthleteById(id: number): Promise<Athlete | null> {
+  await ensureDbInitialized();
+  const client = getDb();
+  const res = await client.execute({
+    sql: 'SELECT * FROM athletes WHERE id = ?',
+    args: [id],
+  });
+  if (res.rows.length === 0) return null;
+  const row = res.rows[0];
   return {
-    ...row,
-    is_demo: Boolean(row.is_demo),
+    id: Number(row.id),
+    firstname: String(row.firstname || ''),
+    lastname: String(row.lastname || ''),
+    username: row.username ? String(row.username) : null,
+    profile_url: row.profile_url ? String(row.profile_url) : null,
+    access_token: String(row.access_token || ''),
+    refresh_token: String(row.refresh_token || ''),
+    token_expires_at: Number(row.token_expires_at || 0),
+    last_synced_at: row.last_synced_at ? Number(row.last_synced_at) : null,
+    in_club: row.in_club !== undefined && row.in_club !== null ? Number(row.in_club) : 1,
+    created_at: Number(row.created_at || Date.now()),
   };
 }
 
-export function upsertAthlete(athlete: {
+export async function updateAthleteClubStatus(id: number, inClub: number): Promise<void> {
+  await ensureDbInitialized();
+  const client = getDb();
+  await client.execute({
+    sql: 'UPDATE athletes SET in_club = ? WHERE id = ?',
+    args: [inClub, id],
+  });
+}
+
+export async function upsertAthlete(athlete: {
   id: number;
   firstname: string;
   lastname: string;
@@ -285,41 +167,63 @@ export function upsertAthlete(athlete: {
   access_token: string;
   refresh_token: string;
   token_expires_at: number;
-  is_demo?: boolean;
-}): void {
-  const db = getDb();
-  db.prepare(`
-    INSERT INTO athletes (
-      id, firstname, lastname, username, profile_url,
-      access_token, refresh_token, token_expires_at,
-      created_at, is_demo
-    ) VALUES (
-      @id, @firstname, @lastname, @username, @profile_url,
-      @access_token, @refresh_token, @token_expires_at,
-      @created_at, @is_demo
-    )
-    ON CONFLICT(id) DO UPDATE SET
-      firstname = excluded.firstname,
-      lastname = excluded.lastname,
-      username = excluded.username,
-      profile_url = excluded.profile_url,
-      access_token = excluded.access_token,
-      refresh_token = excluded.refresh_token,
-      token_expires_at = excluded.token_expires_at,
-      is_demo = excluded.is_demo
-  `).run({
-    ...athlete,
-    created_at: Date.now(),
-    is_demo: athlete.is_demo ? 1 : 0,
+  in_club?: number;
+}): Promise<void> {
+  await ensureDbInitialized();
+  const client = getDb();
+  await client.execute({
+    sql: `
+      INSERT INTO athletes (
+        id, firstname, lastname, username, profile_url,
+        access_token, refresh_token, token_expires_at, in_club, created_at
+      ) VALUES (
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        firstname = excluded.firstname,
+        lastname = excluded.lastname,
+        username = excluded.username,
+        profile_url = excluded.profile_url,
+        access_token = excluded.access_token,
+        refresh_token = excluded.refresh_token,
+        token_expires_at = excluded.token_expires_at,
+        in_club = COALESCE(excluded.in_club, athletes.in_club, 1)
+    `,
+    args: [
+      athlete.id,
+      athlete.firstname,
+      athlete.lastname,
+      athlete.username,
+      athlete.profile_url,
+      athlete.access_token,
+      athlete.refresh_token,
+      athlete.token_expires_at,
+      athlete.in_club !== undefined ? athlete.in_club : 1,
+      Date.now(),
+    ],
   });
 }
 
-export function updateAthleteLastSynced(id: number): void {
-  const db = getDb();
-  db.prepare('UPDATE athletes SET last_synced_at = ? WHERE id = ?').run(Date.now(), id);
+export async function updateAthleteLastSynced(id: number): Promise<void> {
+  await ensureDbInitialized();
+  const client = getDb();
+  await client.execute({
+    sql: 'UPDATE athletes SET last_synced_at = ? WHERE id = ?',
+    args: [Date.now(), id],
+  });
 }
 
-export function upsertSwim(swim: {
+export async function deleteAthlete(id: number): Promise<void> {
+  await ensureDbInitialized();
+  const client = getDb();
+  await client.batch([
+    { sql: 'DELETE FROM swims WHERE athlete_id = ?', args: [id] },
+    { sql: 'DELETE FROM athletes WHERE id = ?', args: [id] },
+  ]);
+}
+
+export async function upsertSwim(swim: {
   id: number;
   athlete_id: number;
   name: string;
@@ -331,55 +235,111 @@ export function upsertSwim(swim: {
   start_date_local: string;
   start_timestamp: number;
   average_speed: number;
-  is_demo?: boolean;
-}): void {
-  const db = getDb();
-  db.prepare(`
-    INSERT INTO swims (
-      id, athlete_id, name, distance_meters, distance_yards,
-      moving_time, elapsed_time, start_date, start_date_local,
-      start_timestamp, average_speed, is_demo
-    ) VALUES (
-      @id, @athlete_id, @name, @distance_meters, @distance_yards,
-      @moving_time, @elapsed_time, @start_date, @start_date_local,
-      @start_timestamp, @average_speed, @is_demo
-    )
-    ON CONFLICT(id) DO UPDATE SET
-      name = excluded.name,
-      distance_meters = excluded.distance_meters,
-      distance_yards = excluded.distance_yards,
-      moving_time = excluded.moving_time,
-      elapsed_time = excluded.elapsed_time,
-      average_speed = excluded.average_speed
-  `).run({
-    ...swim,
-    is_demo: swim.is_demo ? 1 : 0,
+}): Promise<void> {
+  await ensureDbInitialized();
+  const client = getDb();
+  await client.execute({
+    sql: `
+      INSERT INTO swims (
+        id, athlete_id, name, distance_meters, distance_yards,
+        moving_time, elapsed_time, start_date, start_date_local,
+        start_timestamp, average_speed
+      ) VALUES (
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        distance_meters = excluded.distance_meters,
+        distance_yards = excluded.distance_yards,
+        moving_time = excluded.moving_time,
+        elapsed_time = excluded.elapsed_time,
+        average_speed = excluded.average_speed
+    `,
+    args: [
+      swim.id,
+      swim.athlete_id,
+      swim.name,
+      swim.distance_meters,
+      swim.distance_yards,
+      swim.moving_time,
+      swim.elapsed_time,
+      swim.start_date,
+      swim.start_date_local,
+      swim.start_timestamp,
+      swim.average_speed,
+    ],
   });
 }
 
-export function getAthleteSwims(athleteId: number, limit = 20): Swim[] {
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT * FROM swims
-    WHERE athlete_id = ?
-    ORDER BY start_timestamp DESC
-    LIMIT ?
-  `).all(athleteId, limit) as Swim[];
+export async function deleteSwim(swimId: number): Promise<void> {
+  await ensureDbInitialized();
+  const client = getDb();
+  await client.execute({
+    sql: 'DELETE FROM swims WHERE id = ?',
+    args: [swimId],
+  });
+}
 
-  return rows.map(r => ({
-    ...r,
-    is_demo: Boolean(r.is_demo),
+export async function reconcileAthleteSwims(
+  athleteId: number,
+  afterTimestampMs: number,
+  currentSwimIds: number[]
+): Promise<void> {
+  await ensureDbInitialized();
+  const client = getDb();
+  if (currentSwimIds.length === 0) {
+    await client.execute({
+      sql: 'DELETE FROM swims WHERE athlete_id = ? AND start_timestamp >= ?',
+      args: [athleteId, afterTimestampMs],
+    });
+  } else {
+    const placeholders = currentSwimIds.map(() => '?').join(',');
+    await client.execute({
+      sql: `DELETE FROM swims WHERE athlete_id = ? AND start_timestamp >= ? AND id NOT IN (${placeholders})`,
+      args: [athleteId, afterTimestampMs, ...currentSwimIds],
+    });
+  }
+}
+
+export async function getAthleteSwims(athleteId: number, limit = 30): Promise<Swim[]> {
+  await ensureDbInitialized();
+  const client = getDb();
+  const res = await client.execute({
+    sql: `
+      SELECT * FROM swims
+      WHERE athlete_id = ?
+      ORDER BY start_timestamp DESC
+      LIMIT ?
+    `,
+    args: [athleteId, limit],
+  });
+  return res.rows.map(row => ({
+    id: Number(row.id),
+    athlete_id: Number(row.athlete_id),
+    name: String(row.name || ''),
+    distance_meters: Number(row.distance_meters || 0),
+    distance_yards: Number(row.distance_yards || 0),
+    moving_time: Number(row.moving_time || 0),
+    elapsed_time: Number(row.elapsed_time || 0),
+    start_date: String(row.start_date || ''),
+    start_date_local: String(row.start_date_local || ''),
+    start_timestamp: Number(row.start_timestamp || 0),
+    average_speed: Number(row.average_speed || 0),
   }));
 }
 
-/**
- * Computes Leaderboard aggregation for a given timeframe and metric
- */
-export function getLeaderboard(
+export async function getLeaderboard(
   timeframe: TimeframeOption = 'this_week',
-  sortBy: MetricOption = 'yards',
-  includeDemo = true
-): {
+  sortBy: MetricOption = 'swims',
+  customRange?: {
+    startMs: number;
+    endMs: number;
+    label: string;
+    sublabel: string;
+  }
+): Promise<{
   leaderboard: LeaderboardEntry[];
   summary: {
     totalYards: number;
@@ -388,140 +348,268 @@ export function getLeaderboard(
     activeAthletes: number;
     periodLabel: string;
     sublabel: string;
+    delta?: {
+      swims: number;
+      yards: number;
+    };
   };
-} {
-  const db = getDb();
+}> {
+  await ensureDbInitialized();
+  const client = getDb();
   const dateRanges = getDateRangeForOption(timeframe);
-  const { current, comparison } = dateRanges;
+  const current = customRange ?? dateRanges.current;
+  const comparison = customRange
+    ? {
+        startMs: customRange.startMs - (customRange.endMs - customRange.startMs + 1),
+        endMs: customRange.startMs - 1,
+        label: 'Prior Period',
+        sublabel: '',
+      }
+    : dateRanges.comparison;
 
-  const athletes = getAllAthletes(includeDemo);
+  const { challengeWeeksCount } = getChallengeBounds();
+  const comparisonWindow = getWeeklyComparisonWindow();
 
-  const entries: LeaderboardEntry[] = [];
+  const athletes = await getAllAthletes();
+
   let clubTotalYards = 0;
   let clubTotalSwims = 0;
   let clubTotalTime = 0;
   let activeAthletesCount = 0;
 
-  for (const athlete of athletes) {
-    // Current period stats
-    const currentStats = db.prepare(`
-      SELECT
-        COUNT(*) as swims,
-        COALESCE(SUM(distance_yards), 0) as yards,
-        COALESCE(SUM(moving_time), 0) as movingTimeSeconds,
-        COALESCE(MAX(distance_yards), 0) as longestSwimYards
-      FROM swims
-      WHERE athlete_id = ?
-        AND start_timestamp >= ?
-        AND start_timestamp <= ?
-    `).get(athlete.id, current.startMs, current.endMs) as {
-      swims: number;
-      yards: number;
-      movingTimeSeconds: number;
-      longestSwimYards: number;
-    };
+  const entries: LeaderboardEntry[] = await Promise.all(
+    athletes.map(async athlete => {
+      const [currentStatsRes, prevStatsRes] = await Promise.all([
+        client.execute({
+          sql: `
+            SELECT
+              COUNT(*) as swims,
+              COALESCE(SUM(distance_yards), 0) as yards,
+              COALESCE(SUM(moving_time), 0) as movingTimeSeconds,
+              COALESCE(MAX(distance_yards), 0) as longestSwimYards
+            FROM swims
+            WHERE athlete_id = ?
+              AND start_timestamp >= ?
+              AND start_timestamp <= ?
+          `,
+          args: [athlete.id, current.startMs, current.endMs],
+        }),
+        client.execute({
+          sql: `
+            SELECT
+              COUNT(*) as swims,
+              COALESCE(SUM(distance_yards), 0) as yards,
+              COALESCE(SUM(moving_time), 0) as movingTimeSeconds
+            FROM swims
+            WHERE athlete_id = ?
+              AND start_timestamp >= ?
+              AND start_timestamp <= ?
+          `,
+          args: [athlete.id, comparison.startMs, comparison.endMs],
+        }),
+      ]);
 
-    // Previous period stats (for delta / "since last week")
-    const prevStats = db.prepare(`
-      SELECT
-        COUNT(*) as swims,
-        COALESCE(SUM(distance_yards), 0) as yards,
-        COALESCE(SUM(moving_time), 0) as movingTimeSeconds
-      FROM swims
-      WHERE athlete_id = ?
-        AND start_timestamp >= ?
-        AND start_timestamp <= ?
-    `).get(athlete.id, comparison.startMs, comparison.endMs) as {
-      swims: number;
-      yards: number;
-      movingTimeSeconds: number;
-    };
+      const cRow = currentStatsRes.rows[0];
+      const pRow = prevStatsRes.rows[0];
 
-    // Recent swims for this athlete in current period
-    const recentSwims = db.prepare(`
-      SELECT * FROM swims
-      WHERE athlete_id = ?
-        AND start_timestamp >= ?
-        AND start_timestamp <= ?
-      ORDER BY start_timestamp DESC
-      LIMIT 5
-    `).all(athlete.id, current.startMs, current.endMs) as Swim[];
+      const currentStats = {
+        swims: Number(cRow?.swims || 0),
+        yards: Number(cRow?.yards || 0),
+        movingTimeSeconds: Number(cRow?.movingTimeSeconds || 0),
+        longestSwimYards: Number(cRow?.longestSwimYards || 0),
+      };
 
-    // Calculate pace in seconds per 100 yards
-    const avgPace =
-      currentStats.yards > 0
-        ? Math.round((currentStats.movingTimeSeconds / currentStats.yards) * 100)
-        : 0;
+      const prevStats = {
+        swims: Number(pRow?.swims || 0),
+        yards: Number(pRow?.yards || 0),
+        movingTimeSeconds: Number(pRow?.movingTimeSeconds || 0),
+      };
 
-    const swimsDelta = currentStats.swims - prevStats.swims;
-    const yardsDelta = currentStats.yards - prevStats.yards;
-    const yardsPercentChange =
-      prevStats.yards > 0
-        ? Math.round(((currentStats.yards - prevStats.yards) / prevStats.yards) * 100)
-        : null;
+      const avgPace =
+        currentStats.yards > 0
+          ? Math.round((currentStats.movingTimeSeconds / currentStats.yards) * 100)
+          : 0;
 
-    if (currentStats.swims > 0) {
+      let swimsDelta = currentStats.swims - prevStats.swims;
+
+      if (!customRange && timeframe === 'this_week') {
+        const [lastWeekCompletedRes, lastWeekThroughTodayRes] = await Promise.all([
+          comparisonWindow.lastWeekCompletedDaysEndMs >= comparisonWindow.lastWeekStartMs
+            ? client.execute({
+                sql: `
+                  SELECT COUNT(*) as count
+                  FROM swims
+                  WHERE athlete_id = ?
+                    AND start_timestamp >= ?
+                    AND start_timestamp <= ?
+                `,
+                args: [
+                  athlete.id,
+                  comparisonWindow.lastWeekStartMs,
+                  comparisonWindow.lastWeekCompletedDaysEndMs,
+                ],
+              })
+            : Promise.resolve({ rows: [{ count: 0 }] }),
+          client.execute({
+            sql: `
+              SELECT COUNT(*) as count
+              FROM swims
+              WHERE athlete_id = ?
+                AND start_timestamp >= ?
+                AND start_timestamp <= ?
+            `,
+            args: [
+              athlete.id,
+              comparisonWindow.lastWeekStartMs,
+              comparisonWindow.lastWeekThroughTodayEndMs,
+            ],
+          }),
+        ]);
+
+        const lastWeekCompletedSwims = Number(lastWeekCompletedRes.rows[0]?.count || 0);
+        const lastWeekThroughTodaySwims = Number(lastWeekThroughTodayRes.rows[0]?.count || 0);
+
+        if (currentStats.swims > lastWeekThroughTodaySwims) {
+          swimsDelta = currentStats.swims - lastWeekThroughTodaySwims;
+        } else if (currentStats.swims < lastWeekCompletedSwims) {
+          swimsDelta = currentStats.swims - lastWeekCompletedSwims;
+        } else {
+          swimsDelta = 0;
+        }
+      }
+
+      const yardsDelta = currentStats.yards - prevStats.yards;
+      const yardsPercentChange =
+        prevStats.yards > 0
+          ? Math.round(((currentStats.yards - prevStats.yards) / prevStats.yards) * 100)
+          : null;
+
+      const challengeWeeks =
+        (timeframe === 'challenge' || timeframe === 'all_time') && !customRange
+          ? Math.max(1, challengeWeeksCount)
+          : 1;
+      const swimsPerWeek = currentStats.swims / challengeWeeks;
+      const yardsPerWeek = Math.round(currentStats.yards / challengeWeeks);
+
+      return {
+        rank: 0,
+        athlete: {
+          id: athlete.id,
+          firstname: athlete.firstname,
+          lastname: athlete.lastname,
+          username: athlete.username,
+          profile_url: athlete.profile_url,
+          last_synced_at: athlete.last_synced_at,
+        },
+        currentPeriod: {
+          swims: currentStats.swims,
+          yards: Math.round(currentStats.yards),
+          movingTimeSeconds: currentStats.movingTimeSeconds,
+          avgPacePer100YdSeconds: avgPace,
+          longestSwimYards: Math.round(currentStats.longestSwimYards),
+          swimsPerWeek: Math.round(swimsPerWeek * 10) / 10,
+          yardsPerWeek,
+        },
+        previousPeriod: {
+          swims: prevStats.swims,
+          yards: Math.round(prevStats.yards),
+          movingTimeSeconds: prevStats.movingTimeSeconds,
+        },
+        delta: {
+          swims: swimsDelta,
+          yards: Math.round(yardsDelta),
+          yardsPercentChange,
+        },
+      };
+    })
+  );
+
+  for (const entry of entries) {
+    if (entry.currentPeriod.swims > 0) {
       activeAthletesCount++;
     }
-
-    clubTotalYards += currentStats.yards;
-    clubTotalSwims += currentStats.swims;
-    clubTotalTime += currentStats.movingTimeSeconds;
-
-    entries.push({
-      rank: 0, // Assigned after sorting
-      athlete: {
-        id: athlete.id,
-        firstname: athlete.firstname,
-        lastname: athlete.lastname,
-        username: athlete.username,
-        profile_url: athlete.profile_url,
-        is_demo: Boolean(athlete.is_demo),
-        last_synced_at: athlete.last_synced_at,
-      },
-      currentPeriod: {
-        swims: currentStats.swims,
-        yards: Math.round(currentStats.yards),
-        movingTimeSeconds: currentStats.movingTimeSeconds,
-        avgPacePer100YdSeconds: avgPace,
-        longestSwimYards: Math.round(currentStats.longestSwimYards),
-      },
-      previousPeriod: {
-        swims: prevStats.swims,
-        yards: Math.round(prevStats.yards),
-        movingTimeSeconds: prevStats.movingTimeSeconds,
-      },
-      delta: {
-        swims: swimsDelta,
-        yards: Math.round(yardsDelta),
-        yardsPercentChange,
-      },
-      recentSwims: recentSwims.map(s => ({ ...s, is_demo: Boolean(s.is_demo) })),
-    });
+    clubTotalYards += entry.currentPeriod.yards;
+    clubTotalSwims += entry.currentPeriod.swims;
+    clubTotalTime += entry.currentPeriod.movingTimeSeconds;
   }
 
-  // Sort entries based on metric option
+  // Sort by swims (default) or yards
   entries.sort((a, b) => {
-    if (sortBy === 'swims') {
-      if (b.currentPeriod.swims !== a.currentPeriod.swims) {
-        return b.currentPeriod.swims - a.currentPeriod.swims;
+    if (sortBy === 'yards') {
+      if (b.currentPeriod.yards !== a.currentPeriod.yards) {
+        return b.currentPeriod.yards - a.currentPeriod.yards;
       }
-      return b.currentPeriod.yards - a.currentPeriod.yards;
+      return b.currentPeriod.swims - a.currentPeriod.swims;
     }
-    if (sortBy === 'time') {
-      return b.currentPeriod.movingTimeSeconds - a.currentPeriod.movingTimeSeconds;
+    // Default: swims
+    if (b.currentPeriod.swims !== a.currentPeriod.swims) {
+      return b.currentPeriod.swims - a.currentPeriod.swims;
     }
-    // Default: yards
-    if (b.currentPeriod.yards !== a.currentPeriod.yards) {
-      return b.currentPeriod.yards - a.currentPeriod.yards;
-    }
-    return b.currentPeriod.swims - a.currentPeriod.swims;
+    return b.currentPeriod.yards - a.currentPeriod.yards;
   });
 
-  // Assign ranks
   entries.forEach((entry, idx) => {
     entry.rank = idx + 1;
   });
+
+  // Calculate community club totals delta
+  const prevClubStatsRes = await client.execute({
+    sql: `
+      SELECT
+        COUNT(*) as swims,
+        COALESCE(SUM(distance_yards), 0) as yards
+      FROM swims
+      WHERE start_timestamp >= ? AND start_timestamp <= ?
+    `,
+    args: [comparison.startMs, comparison.endMs],
+  });
+
+  const prevClubRow = prevClubStatsRes.rows[0];
+  const prevClubSwims = Number(prevClubRow?.swims || 0);
+  const prevClubYards = Number(prevClubRow?.yards || 0);
+
+  let clubSwimsDelta = clubTotalSwims - prevClubSwims;
+  const clubYardsDelta = clubTotalYards - prevClubYards;
+
+  if (!customRange && timeframe === 'this_week') {
+    const [clubLastWeekCompletedRes, clubLastWeekThroughTodayRes] = await Promise.all([
+      comparisonWindow.lastWeekCompletedDaysEndMs >= comparisonWindow.lastWeekStartMs
+        ? client.execute({
+            sql: `
+              SELECT COUNT(*) as count
+              FROM swims
+              WHERE start_timestamp >= ? AND start_timestamp <= ?
+            `,
+            args: [
+              comparisonWindow.lastWeekStartMs,
+              comparisonWindow.lastWeekCompletedDaysEndMs,
+            ],
+          })
+        : Promise.resolve({ rows: [{ count: 0 }] }),
+      client.execute({
+        sql: `
+          SELECT COUNT(*) as count
+          FROM swims
+          WHERE start_timestamp >= ? AND start_timestamp <= ?
+        `,
+        args: [
+          comparisonWindow.lastWeekStartMs,
+          comparisonWindow.lastWeekThroughTodayEndMs,
+        ],
+      }),
+    ]);
+
+    const clubLastWeekCompletedSwims = Number(clubLastWeekCompletedRes.rows[0]?.count || 0);
+    const clubLastWeekThroughTodaySwims = Number(clubLastWeekThroughTodayRes.rows[0]?.count || 0);
+
+    if (clubTotalSwims > clubLastWeekThroughTodaySwims) {
+      clubSwimsDelta = clubTotalSwims - clubLastWeekThroughTodaySwims;
+    } else if (clubTotalSwims < clubLastWeekCompletedSwims) {
+      clubSwimsDelta = clubTotalSwims - clubLastWeekCompletedSwims;
+    } else {
+      clubSwimsDelta = 0;
+    }
+  }
 
   return {
     leaderboard: entries,
@@ -532,32 +620,85 @@ export function getLeaderboard(
       activeAthletes: activeAthletesCount,
       periodLabel: current.label,
       sublabel: current.sublabel,
+      delta: {
+        swims: clubSwimsDelta,
+        yards: Math.round(clubYardsDelta),
+      },
     },
   };
 }
 
-export function resetToDemoData() {
-  const db = getDb();
-  db.exec(`
-    DELETE FROM swims WHERE is_demo = 1;
-    DELETE FROM athletes WHERE is_demo = 1;
-  `);
-  seedDemoAthletesAndSwims(db);
-}
-
 export function getAppSetting(key: string): string | null {
-  const db = getDb();
-  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key) as
-    | { value: string }
-    | undefined;
-  return row ? row.value : null;
+  return appSettingsCache[key] ?? null;
 }
 
-export function setAppSetting(key: string, value: string): void {
-  const db = getDb();
-  db.prepare(`
-    INSERT INTO app_settings (key, value)
-    VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value
-  `).run(key, value);
+export async function setAppSetting(key: string, value: string): Promise<void> {
+  appSettingsCache[key] = value;
+  await ensureDbInitialized();
+  const client = getDb();
+  await client.execute({
+    sql: `
+      INSERT INTO app_settings (key, value)
+      VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `,
+    args: [key, value],
+  });
+}
+
+export async function getAthleteMedalCount(athleteId: number): Promise<{
+  gold: number;
+  silver: number;
+  bronze: number;
+  total: number;
+  weeklyMedals: Record<number, 'gold' | 'silver' | 'bronze'>;
+}> {
+  const completedWeeks = getCompletedChallengeWeeks();
+  let gold = 0;
+  let silver = 0;
+  let bronze = 0;
+  const weeklyMedals: Record<number, 'gold' | 'silver' | 'bronze'> = {};
+
+  const weekResults = await Promise.all(
+    completedWeeks.map(async week => {
+      const { leaderboard } = await getLeaderboard('this_week', 'swims', {
+        startMs: week.startMs,
+        endMs: week.endMs,
+        label: week.label,
+        sublabel: week.dateRange,
+      });
+
+      let medal: 'gold' | 'silver' | 'bronze' | null = null;
+      if (leaderboard[0]?.athlete.id === athleteId && leaderboard[0].currentPeriod.swims > 0) {
+        medal = 'gold';
+      } else if (leaderboard[1]?.athlete.id === athleteId && leaderboard[1].currentPeriod.swims > 0) {
+        medal = 'silver';
+      } else if (leaderboard[2]?.athlete.id === athleteId && leaderboard[2].currentPeriod.swims > 0) {
+        medal = 'bronze';
+      }
+
+      return { weekNumber: week.weekNumber, medal };
+    })
+  );
+
+  for (const r of weekResults) {
+    if (r.medal === 'gold') {
+      gold++;
+      weeklyMedals[r.weekNumber] = 'gold';
+    } else if (r.medal === 'silver') {
+      silver++;
+      weeklyMedals[r.weekNumber] = 'silver';
+    } else if (r.medal === 'bronze') {
+      bronze++;
+      weeklyMedals[r.weekNumber] = 'bronze';
+    }
+  }
+
+  return {
+    gold,
+    silver,
+    bronze,
+    total: gold + silver + bronze,
+    weeklyMedals,
+  };
 }

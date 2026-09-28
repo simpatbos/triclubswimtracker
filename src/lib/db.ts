@@ -7,6 +7,57 @@ import { getDateRangeForOption, getChallengeBounds, getWeeklyComparisonWindow, g
 declare global {
   var __libsql_client: Client | undefined;
   var __db_initialized: boolean | undefined;
+  var __db_data_version: number | undefined;
+}
+
+if (!global.__db_data_version) {
+  global.__db_data_version = Date.now();
+}
+
+export function getDataVersion(): number {
+  return global.__db_data_version || Date.now();
+}
+
+interface LeaderboardCacheEntry {
+  version: number;
+  data: {
+    leaderboard: LeaderboardEntry[];
+    summary: {
+      totalYards: number;
+      totalSwims: number;
+      totalDurationSeconds: number;
+      activeAthletes: number;
+      periodLabel: string;
+      sublabel: string;
+      delta?: {
+        swims: number;
+        yards: number;
+      };
+    };
+  };
+}
+
+const leaderboardCache = new Map<string, LeaderboardCacheEntry>();
+const athleteSwimsCache = new Map<string, { version: number; data: Swim[] }>();
+const athleteMedalsCache = new Map<
+  number,
+  {
+    version: number;
+    data: {
+      gold: number;
+      silver: number;
+      bronze: number;
+      total: number;
+      weeklyMedals: Record<number, 'gold' | 'silver' | 'bronze'>;
+    };
+  }
+>();
+
+export function invalidateCache(): void {
+  global.__db_data_version = Date.now();
+  leaderboardCache.clear();
+  athleteSwimsCache.clear();
+  athleteMedalsCache.clear();
 }
 
 const appSettingsCache: Record<string, string> = {};
@@ -154,6 +205,7 @@ export async function updateAthleteClubStatus(id: number, inClub: number): Promi
     sql: 'UPDATE athletes SET in_club = ? WHERE id = ?',
     args: [inClub, id],
   });
+  invalidateCache();
 }
 
 export async function upsertAthlete(athlete: {
@@ -201,6 +253,7 @@ export async function upsertAthlete(athlete: {
       Date.now(),
     ],
   });
+  invalidateCache();
 }
 
 export async function updateAthleteLastSynced(id: number): Promise<void> {
@@ -210,6 +263,7 @@ export async function updateAthleteLastSynced(id: number): Promise<void> {
     sql: 'UPDATE athletes SET last_synced_at = ? WHERE id = ?',
     args: [Date.now(), id],
   });
+  invalidateCache();
 }
 
 export async function deleteAthlete(id: number): Promise<void> {
@@ -219,6 +273,7 @@ export async function deleteAthlete(id: number): Promise<void> {
     { sql: 'DELETE FROM swims WHERE athlete_id = ?', args: [id] },
     { sql: 'DELETE FROM athletes WHERE id = ?', args: [id] },
   ]);
+  invalidateCache();
 }
 
 export async function upsertSwim(swim: {
@@ -269,6 +324,7 @@ export async function upsertSwim(swim: {
       swim.average_speed,
     ],
   });
+  invalidateCache();
 }
 
 export async function deleteSwim(swimId: number): Promise<void> {
@@ -278,6 +334,7 @@ export async function deleteSwim(swimId: number): Promise<void> {
     sql: 'DELETE FROM swims WHERE id = ?',
     args: [swimId],
   });
+  invalidateCache();
 }
 
 export async function reconcileAthleteSwims(
@@ -299,9 +356,17 @@ export async function reconcileAthleteSwims(
       args: [athleteId, afterTimestampMs, ...currentSwimIds],
     });
   }
+  invalidateCache();
 }
 
 export async function getAthleteSwims(athleteId: number, limit = 30): Promise<Swim[]> {
+  const currentVersion = getDataVersion();
+  const cacheKey = `${athleteId}:${limit}`;
+  const cached = athleteSwimsCache.get(cacheKey);
+  if (cached && cached.version === currentVersion) {
+    return cached.data;
+  }
+
   await ensureDbInitialized();
   const client = getDb();
   const res = await client.execute({
@@ -313,7 +378,7 @@ export async function getAthleteSwims(athleteId: number, limit = 30): Promise<Sw
     `,
     args: [athleteId, limit],
   });
-  return res.rows.map(row => ({
+  const swims = res.rows.map(row => ({
     id: Number(row.id),
     athlete_id: Number(row.athlete_id),
     name: String(row.name || ''),
@@ -326,6 +391,9 @@ export async function getAthleteSwims(athleteId: number, limit = 30): Promise<Sw
     start_timestamp: Number(row.start_timestamp || 0),
     average_speed: Number(row.average_speed || 0),
   }));
+
+  athleteSwimsCache.set(cacheKey, { version: currentVersion, data: swims });
+  return swims;
 }
 
 export async function getLeaderboard(
@@ -352,6 +420,13 @@ export async function getLeaderboard(
     };
   };
 }> {
+  const currentVersion = getDataVersion();
+  const cacheKey = `${timeframe}:${sortBy}:${customRange ? `${customRange.startMs}_${customRange.endMs}_${customRange.label}` : 'standard'}`;
+  const cached = leaderboardCache.get(cacheKey);
+  if (cached && cached.version === currentVersion) {
+    return cached.data;
+  }
+
   await ensureDbInitialized();
   const client = getDb();
   const dateRanges = getDateRangeForOption(timeframe);
@@ -609,7 +684,7 @@ export async function getLeaderboard(
     }
   }
 
-  return {
+  const result = {
     leaderboard: entries,
     summary: {
       totalYards: Math.round(clubTotalYards),
@@ -624,6 +699,9 @@ export async function getLeaderboard(
       },
     },
   };
+
+  leaderboardCache.set(cacheKey, { version: currentVersion, data: result });
+  return result;
 }
 
 export function getAppSetting(key: string): string | null {
@@ -651,6 +729,12 @@ export async function getAthleteMedalCount(athleteId: number): Promise<{
   total: number;
   weeklyMedals: Record<number, 'gold' | 'silver' | 'bronze'>;
 }> {
+  const currentVersion = getDataVersion();
+  const cached = athleteMedalsCache.get(athleteId);
+  if (cached && cached.version === currentVersion) {
+    return cached.data;
+  }
+
   const completedWeeks = getCompletedChallengeWeeks();
   let gold = 0;
   let silver = 0;
@@ -692,11 +776,14 @@ export async function getAthleteMedalCount(athleteId: number): Promise<{
     }
   }
 
-  return {
+  const result = {
     gold,
     silver,
     bronze,
     total: gold + silver + bronze,
     weeklyMedals,
   };
+
+  athleteMedalsCache.set(athleteId, { version: currentVersion, data: result });
+  return result;
 }

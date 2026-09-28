@@ -1,13 +1,13 @@
 'use strict';
 'use client';
 
-import React, { useEffect, useState, useCallback, Suspense } from 'react';
+import React, { useEffect, useState, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { Settings as SettingsIcon, Info, CheckCircle2, AlertCircle, History } from 'lucide-react';
 import { ClassicPodium } from '@/components/ClassicPodium';
 import { ClassicLeaderboardList } from '@/components/ClassicLeaderboardList';
-import { AthleteModal } from '@/components/AthleteModal';
+import { AthleteModal, clearAthleteModalCache } from '@/components/AthleteModal';
 import { SettingsModal } from '@/components/SettingsModal';
 import { InfoModal } from '@/components/InfoModal';
 import { PreviousWeeksModal } from '@/components/PreviousWeeksModal';
@@ -62,15 +62,23 @@ function SwimTracker() {
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntry[]>([]);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Client-side cache to enable instant tab switches without refetching
+  const leaderboardCacheRef = useRef<Record<string, LeaderboardEntry[]>>({});
+
   // Read URL query feedback on load
   const authSuccess = searchParams.get('auth_success');
   const authError = searchParams.get('auth_error');
 
-  const fetchLeaderboard = useCallback(async (view: 'this_week' | 'challenge') => {
+  const fetchLeaderboard = useCallback(async (view: 'this_week' | 'challenge', force = false) => {
+    if (!force && leaderboardCacheRef.current[view]) {
+      setLeaderboardData(leaderboardCacheRef.current[view]);
+      return;
+    }
     try {
       const res = await fetch(`/api/leaderboard?timeframe=${view}&sortBy=swims`);
       const data = await res.json();
       if (data.leaderboard) {
+        leaderboardCacheRef.current[view] = data.leaderboard;
         setLeaderboardData(data.leaderboard);
       }
     } catch (err) {
@@ -80,16 +88,11 @@ function SwimTracker() {
 
   const handleViewChange = async (newView: 'this_week' | 'challenge') => {
     if (newView === leaderboardView) return;
-    try {
-      const res = await fetch(`/api/leaderboard?timeframe=${newView}&sortBy=swims`);
-      const data = await res.json();
-      if (data.leaderboard) {
-        setLeaderboardData(data.leaderboard);
-      }
-      setLeaderboardView(newView);
-    } catch (err) {
-      console.error('Error switching leaderboard view', err);
-      setLeaderboardView(newView);
+    setLeaderboardView(newView);
+    if (leaderboardCacheRef.current[newView]) {
+      setLeaderboardData(leaderboardCacheRef.current[newView]);
+    } else {
+      await fetchLeaderboard(newView);
     }
   };
 
@@ -112,7 +115,10 @@ function SwimTracker() {
           fetch(`/api/leaderboard?timeframe=${leaderboardView}&sortBy=swims`)
             .then(res => res.json())
             .then(data => {
-              if (active && data.leaderboard) setLeaderboardData(data.leaderboard);
+              if (active && data.leaderboard) {
+                leaderboardCacheRef.current[leaderboardView] = data.leaderboard;
+                setLeaderboardData(data.leaderboard);
+              }
             })
             .catch(err => console.error('Leaderboard loading error', err)),
         ]);
@@ -133,21 +139,14 @@ function SwimTracker() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Background polling: refreshes active view every 30s
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchLeaderboard(leaderboardView);
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [fetchLeaderboard, leaderboardView]);
-
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
       setAthlete(null);
+      leaderboardCacheRef.current = {};
+      clearAthleteModalCache();
       // Keep leaderboard visible!
-      await fetchLeaderboard(leaderboardView);
+      await fetchLeaderboard(leaderboardView, true);
       setToast({ type: 'success', message: 'Logged out. Server will continue tracking your swims.' });
     } catch (err) {
       console.error('Logout error:', err);
@@ -156,12 +155,16 @@ function SwimTracker() {
 
   const handleAccountDeleted = async () => {
     setAthlete(null);
-    await fetchLeaderboard(leaderboardView);
+    leaderboardCacheRef.current = {};
+    clearAthleteModalCache();
+    await fetchLeaderboard(leaderboardView, true);
     setToast({ type: 'success', message: 'Account deleted and tracking stopped.' });
   };
 
   const handleRefreshData = async () => {
-    await fetchLeaderboard(leaderboardView);
+    leaderboardCacheRef.current = {};
+    clearAthleteModalCache();
+    await fetchLeaderboard(leaderboardView, true);
     try {
       const res = await fetch('/api/auth/me');
       const data = await res.json();

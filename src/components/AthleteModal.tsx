@@ -29,22 +29,47 @@ interface AthleteModalProps {
   onViewModeChange?: (view: 'this_week' | 'challenge') => void;
 }
 
+interface CachedAthletePayload {
+  athlete: Athlete;
+  swims: Swim[];
+  medals: {
+    gold: number;
+    silver: number;
+    bronze: number;
+    total: number;
+    weeklyMedals: Record<number, 'gold' | 'silver' | 'bronze'>;
+  } | null;
+}
+
+const athleteCache = new Map<number, CachedAthletePayload>();
+
+export function clearAthleteModalCache(): void {
+  athleteCache.clear();
+}
+
 export function AthleteModal({
   athleteId,
   onClose,
   viewMode: controlledViewMode,
   onViewModeChange,
 }: AthleteModalProps) {
-  const [loading, setLoading] = useState(false);
-  const [athlete, setAthlete] = useState<Athlete | null>(null);
-  const [swims, setSwims] = useState<Swim[]>([]);
-  const [medals, setMedals] = useState<{
-    gold: number;
-    silver: number;
-    bronze: number;
-    total: number;
-    weeklyMedals: Record<number, 'gold' | 'silver' | 'bronze'>;
-  } | null>(null);
+  const initialCached = athleteId ? athleteCache.get(athleteId) : null;
+  const [prevId, setPrevId] = useState(athleteId);
+  const [loading, setLoading] = useState(!initialCached);
+  const [athlete, setAthlete] = useState<Athlete | null>(initialCached?.athlete ?? null);
+  const [swims, setSwims] = useState<Swim[]>(initialCached?.swims ?? []);
+  const [medals, setMedals] = useState<CachedAthletePayload['medals']>(initialCached?.medals ?? null);
+
+  // Sync state if athleteId prop changes while modal is mounted
+  if (athleteId !== prevId) {
+    setPrevId(athleteId);
+    const cached = athleteId ? athleteCache.get(athleteId) : null;
+    setAthlete(cached?.athlete ?? null);
+    setSwims(cached?.swims ?? []);
+    setMedals(cached?.medals ?? null);
+    setLoading(!cached);
+  }
+
   // Fallback picker state if not controlled externally
   const [internalViewMode, setInternalViewMode] = useState<'this_week' | 'challenge'>('this_week');
 
@@ -61,16 +86,29 @@ export function AthleteModal({
   useEffect(() => {
     let isMounted = true;
     if (!athleteId) return;
+    const currentId = athleteId;
+
+    if (athleteCache.has(currentId)) {
+      return;
+    }
 
     async function loadAthleteSwims() {
       try {
         setLoading(true);
-        const res = await fetch(`/api/athletes/${athleteId}/swims`);
+        const res = await fetch(`/api/athletes/${currentId}/swims`);
         const data = await res.json();
         if (isMounted) {
           if (data.athlete) setAthlete(data.athlete);
           if (data.swims) setSwims(data.swims);
           if (data.medals) setMedals(data.medals);
+
+          if (data.athlete && data.swims) {
+            athleteCache.set(currentId, {
+              athlete: data.athlete,
+              swims: data.swims,
+              medals: data.medals || null,
+            });
+          }
         }
       } catch (err) {
         console.error('Failed to load athlete swims', err);

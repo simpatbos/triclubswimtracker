@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getLeaderboard } from '@/lib/db';
+import { getLeaderboard, getDataVersion } from '@/lib/db';
 import { TimeframeOption, MetricOption } from '@/types';
 
 export const dynamic = 'force-dynamic';
@@ -40,14 +40,35 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const version = getDataVersion();
+    const etag = `W/"lb-${version}-${safeTimeframe}-${safeSort}-${startMsParam || ''}-${endMsParam || ''}"`;
+
+    if (request.headers.get('if-none-match') === etag) {
+      return new NextResponse(null, {
+        status: 304,
+        headers: {
+          ETag: etag,
+          'Cache-Control': 'no-cache',
+        },
+      });
+    }
+
     const data = await getLeaderboard(safeTimeframe, safeSort, customRange);
 
-    return NextResponse.json({
-      success: true,
-      timeframe: safeTimeframe,
-      sortBy: safeSort,
-      ...data,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        timeframe: safeTimeframe,
+        sortBy: safeSort,
+        ...data,
+      },
+      {
+        headers: {
+          ETag: etag,
+          'Cache-Control': 'no-cache',
+        },
+      }
+    );
   } catch (err: unknown) {
     console.error('Leaderboard error:', err);
     const msg = err instanceof Error ? err.message : 'Failed to fetch leaderboard';

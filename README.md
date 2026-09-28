@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Purdue Triathlon Club - Swim Tracker 🏊‍♂️
+
+A minimalist, classic collegiate web application for tracking swim workouts and leaderboards for the **Purdue Triathlon Club**, powered by the **Strava API**.
+
+## Features
+
+- **Classic Athletic Podium & Leaderboard**:
+  - **Top 3 on Podium**: Visual 3-tier winner's podium with the **Purdue Triathlon Club Logo** on the center step.
+  - **The Rest in a List**: Clean, classic roster list for ranks #4 and beyond.
+  - **Sorted by Swims / Week**: Default view is sorted by swim sessions per week, with an instant toggle for **Yards / Week**.
+  - **Since Last Week**: Week-over-week trends showing changes in swims and yards.
+  - **Swimmer Stats Modal**: Click on any swimmer (on the podium or list) to view their full stats breakdown and recent swim logs (yards, duration, pace per 100 yd).
+- **Strava Integration**:
+  - One-click **Connect Strava** button via OAuth 2.0.
+  - Automatic filtering for swim activities (`type: "Swim"`).
+  - Converts meters to Short-Course Yards (SCY).
+  - Out-of-the-box demo mode with realistic Purdue Tri swimmers so you can test immediately without credentials.
+
+---
 
 ## Getting Started
 
-First, run the development server:
+### 1. Install Dependencies & Run
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 2. Connect Your Live Strava Account
 
-## Learn More
+To connect your live Strava account:
 
-To learn more about Next.js, take a look at the following resources:
+1. Create a free developer application at [https://www.strava.com/settings/api](https://www.strava.com/settings/api).
+2. Set **Authorization Callback Domain** to `localhost:3000`.
+3. Create a `.env.local` file in the root directory:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```env
+STRAVA_CLIENT_ID=your_strava_client_id
+STRAVA_CLIENT_SECRET=your_strava_client_secret
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+4. Restart `npm run dev`. Click **Connect Strava** and authorize with your account!

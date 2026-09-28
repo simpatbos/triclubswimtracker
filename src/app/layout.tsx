@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Purdue Triathlon Club | Swim Leaderboard',
-  description: 'Weekly swim leaderboard for the Purdue Triathlon Club.',
+  description: 'Swim leaderboard for the Purdue Triathlon Club.',
   icons: {
     icon: '/purdue_tri_logo.png',
   },
@@ -16,7 +16,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-white text-neutral-900 antialiased selection:bg-[#cfb991] selection:text-black">
+      <body className="min-h-screen bg-white text-neutral-900 antialiased font-sans">
         {children}
       </body>
     </html>

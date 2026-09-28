@@ -1,7 +1,7 @@
 'use strict';
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { X, ExternalLink, Sparkles, Key, CheckCircle2 } from 'lucide-react';
 
 interface StravaConnectModalProps {
@@ -9,6 +9,7 @@ interface StravaConnectModalProps {
   stravaConfigured: boolean;
   onClose: () => void;
   onSelectDemoAthlete: (athleteId: number) => void;
+  onConfigSaved: () => void;
 }
 
 export function StravaConnectModal({
@@ -16,8 +17,42 @@ export function StravaConnectModal({
   stravaConfigured,
   onClose,
   onSelectDemoAthlete,
+  onConfigSaved,
 }: StravaConnectModalProps) {
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
   if (!isOpen) return null;
+
+  const handleSaveCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!clientId.trim() || !clientSecret.trim()) {
+      setSaveError('Please enter both Client ID and Client Secret.');
+      return;
+    }
+    setIsSaving(true);
+    setSaveError('');
+
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: clientId.trim(), clientSecret: clientSecret.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        onConfigSaved();
+      } else {
+        setSaveError(data.error || 'Failed to save credentials.');
+      }
+    } catch {
+      setSaveError('Network error while saving.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleLiveConnect = () => {
     window.location.href = '/api/auth/login';
@@ -33,7 +68,7 @@ export function StravaConnectModal({
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-6 border-b border-neutral-200 flex items-center justify-between bg-neutral-50/80">
+        <div className="p-5 border-b border-neutral-200 flex items-center justify-between bg-neutral-50/80">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[#fc5200] flex items-center justify-center">
               <svg className="w-4 h-4 fill-white" viewBox="0 0 24 24">
@@ -41,8 +76,8 @@ export function StravaConnectModal({
               </svg>
             </div>
             <div>
-              <h3 className="text-base font-extrabold text-neutral-900 tracking-tight">
-                Connect Strava
+              <h3 className="text-base font-bold text-neutral-900 tracking-tight">
+                Strava Setup
               </h3>
               <p className="text-xs text-neutral-500 font-mono">Purdue Triathlon Club</p>
             </div>
@@ -63,9 +98,9 @@ export function StravaConnectModal({
                 <CheckCircle2 className="w-6 h-6" />
               </div>
               <div>
-                <h4 className="font-bold text-neutral-900 text-sm">Strava API Ready</h4>
+                <h4 className="font-bold text-neutral-900 text-sm">App is Connected to Strava API</h4>
                 <p className="text-xs text-neutral-600 mt-1 max-w-xs mx-auto">
-                  Click below to authorize Purdue Tri Club Swim Tracker with your Strava account.
+                  Click below to authorize and link your Strava athlete profile to the club leaderboard.
                 </p>
               </div>
               <button
@@ -80,29 +115,67 @@ export function StravaConnectModal({
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-3.5 text-xs text-neutral-700">
-                <div className="flex items-center gap-1.5 font-bold mb-1 text-neutral-900">
-                  <Key className="w-4 h-4 text-[#9d8353]" />
-                  <span>Strava API Credentials</span>
+              <div className="text-xs text-neutral-600 leading-relaxed">
+                Enter your club&apos;s Strava API App credentials below. You only do this <strong>once in the browser</strong>—no editing any files needed!
+              </div>
+
+              <form onSubmit={handleSaveCredentials} className="space-y-3">
+                {saveError && (
+                  <div className="p-2 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-xs">
+                    {saveError}
+                  </div>
+                )}
+                <div>
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">
+                    Strava Client ID
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 123456"
+                    value={clientId}
+                    onChange={e => setClientId(e.target.value)}
+                    className="w-full border border-neutral-300 rounded-lg px-3 py-1.5 text-xs text-neutral-900 focus:outline-none focus:border-black"
+                  />
                 </div>
-                <p className="text-neutral-600 leading-relaxed">
-                  Add <code className="bg-neutral-200 px-1 py-0.5 rounded font-mono text-[11px]">STRAVA_CLIENT_ID</code> and <code className="bg-neutral-200 px-1 py-0.5 rounded font-mono text-[11px]">STRAVA_CLIENT_SECRET</code> to <code className="bg-neutral-200 px-1 py-0.5 rounded font-mono text-[11px]">.env.local</code>.
-                </p>
-                <div className="mt-2">
+
+                <div>
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">
+                    Strava Client Secret
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="e.g. 9a8b7c6d5e4f3a2b1..."
+                    value={clientSecret}
+                    onChange={e => setClientSecret(e.target.value)}
+                    className="w-full border border-neutral-300 rounded-lg px-3 py-1.5 text-xs text-neutral-900 focus:outline-none focus:border-black"
+                  />
+                </div>
+
+                <div className="text-[11px] text-neutral-500">
+                  Get yours free at{' '}
                   <a
                     href="https://www.strava.com/settings/api"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-[#9d8353] hover:underline font-semibold inline-flex items-center gap-1"
+                    className="text-[#9d8353] hover:underline font-semibold inline-flex items-center gap-0.5"
                   >
-                    Open Strava API Settings <ExternalLink className="w-3 h-3" />
-                  </a>
+                    strava.com/settings/api <ExternalLink className="w-2.5 h-2.5" />
+                  </a>{' '}
+                  (Set callback domain to <code className="bg-neutral-100 px-1 rounded">localhost:3000</code>).
                 </div>
-              </div>
 
-              <div>
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="w-full bg-neutral-900 hover:bg-black text-white text-xs font-bold py-2 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {isSaving ? 'Saving...' : 'Save & Enable Strava Connect'}
+                </button>
+              </form>
+
+              <div className="pt-3 border-t border-neutral-200">
                 <div className="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">
-                  Quick Demo Swimmer:
+                  Or test right now with 1-click:
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -110,9 +183,9 @@ export function StravaConnectModal({
                       onSelectDemoAthlete(9001);
                       onClose();
                     }}
-                    className="flex items-center justify-center gap-1.5 bg-neutral-900 hover:bg-black text-white text-xs font-semibold py-2 px-3 rounded-xl transition-colors"
+                    className="flex items-center justify-center gap-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 text-xs font-semibold py-2 px-3 rounded-lg border border-neutral-300 transition-colors"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-[#cfb991]" />
+                    <Sparkles className="w-3.5 h-3.5 text-[#9d8353]" />
                     <span>Sarah Jenkins</span>
                   </button>
                   <button
@@ -120,7 +193,7 @@ export function StravaConnectModal({
                       onSelectDemoAthlete(9002);
                       onClose();
                     }}
-                    className="flex items-center justify-center gap-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 text-xs font-semibold py-2 px-3 rounded-xl border border-neutral-300 transition-colors"
+                    className="flex items-center justify-center gap-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 text-xs font-semibold py-2 px-3 rounded-lg border border-neutral-300 transition-colors"
                   >
                     <Sparkles className="w-3.5 h-3.5 text-neutral-600" />
                     <span>Pete Boilermaker</span>

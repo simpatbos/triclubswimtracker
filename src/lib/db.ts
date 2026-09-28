@@ -60,6 +60,11 @@ function initTables(db: Database.Database) {
       is_demo INTEGER NOT NULL DEFAULT 0
     );
 
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_swims_athlete_time ON swims(athlete_id, start_timestamp);
     CREATE INDEX IF NOT EXISTS idx_swims_time ON swims(start_timestamp);
   `);
@@ -538,4 +543,21 @@ export function resetToDemoData() {
     DELETE FROM athletes WHERE is_demo = 1;
   `);
   seedDemoAthletesAndSwims(db);
+}
+
+export function getAppSetting(key: string): string | null {
+  const db = getDb();
+  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key) as
+    | { value: string }
+    | undefined;
+  return row ? row.value : null;
+}
+
+export function setAppSetting(key: string, value: string): void {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO app_settings (key, value)
+    VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(key, value);
 }

@@ -3,7 +3,7 @@
 import React, { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
-import { RefreshCw, LogOut, CheckCircle2, AlertCircle } from 'lucide-react';
+import { RefreshCw, LogOut, CheckCircle2, AlertCircle, Settings, Lock } from 'lucide-react';
 import { ClassicPodium } from '@/components/ClassicPodium';
 import { ClassicLeaderboardList } from '@/components/ClassicLeaderboardList';
 import { AthleteModal } from '@/components/AthleteModal';
@@ -20,9 +20,10 @@ function SwimTracker() {
   const [selectedAthleteId, setSelectedAthleteId] = useState<number | null>(null);
 
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntry[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Handle URL feedback from OAuth redirect
+  // Handle URL feedback from Strava OAuth redirect
   useEffect(() => {
     if (searchParams.get('auth_success')) {
       setToast({
@@ -45,14 +46,16 @@ function SwimTracker() {
       const data = await res.json();
       setAthlete(data.athlete);
       setStravaConfigured(Boolean(data.stravaConfigured));
+      return data.athlete;
     } catch (err) {
       console.error('Session error', err);
+      return null;
     }
   };
 
   const fetchLeaderboard = async () => {
     try {
-      // Entire page sorted by swims/week by default
+      setLoading(true);
       const res = await fetch('/api/leaderboard?timeframe=this_week&sortBy=swims&includeDemo=true');
       const data = await res.json();
       if (data.leaderboard) {
@@ -60,12 +63,26 @@ function SwimTracker() {
       }
     } catch (err) {
       console.error('Leaderboard error', err);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAuth();
-    fetchLeaderboard();
+    fetchAuth().then(user => {
+      if (user) {
+        fetchLeaderboard();
+      } else {
+        setLoading(false);
+      }
+    });
+
+    // Auto-update every 30 seconds when an athlete uploads a swim
+    const interval = setInterval(() => {
+      fetchLeaderboard();
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const handleSync = async () => {
@@ -75,7 +92,7 @@ function SwimTracker() {
       const res = await fetch('/api/sync', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        setToast({ type: 'success', message: 'Swims synced from Strava!' });
+        setToast({ type: 'success', message: 'Swims updated from Strava!' });
         await fetchAuth();
         await fetchLeaderboard();
       } else {
@@ -92,7 +109,6 @@ function SwimTracker() {
     await fetch('/api/auth/logout', { method: 'POST' });
     setAthlete(null);
     setToast({ type: 'success', message: 'Disconnected' });
-    await fetchLeaderboard();
   };
 
   const handleDemoLogin = async (id: number = 9001) => {
@@ -116,9 +132,17 @@ function SwimTracker() {
     }
   };
 
+  const handleConnectClick = () => {
+    if (stravaConfigured) {
+      window.location.href = '/api/auth/login';
+    } else {
+      setConnectModalOpen(true);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white text-neutral-900 flex flex-col antialiased">
-      {/* Toast */}
+      {/* Toast Notification */}
       {toast && (
         <div className="fixed top-4 right-4 z-50 animate-in fade-in duration-150">
           <div
@@ -141,7 +165,7 @@ function SwimTracker() {
         </div>
       )}
 
-      {/* Minimal Header */}
+      {/* Header */}
       <header className="border-b border-neutral-200 py-3 px-4 sm:px-6">
         <div className="max-w-xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -185,41 +209,113 @@ function SwimTracker() {
               </div>
             ) : (
               <button
-                onClick={() => setConnectModalOpen(true)}
-                className="bg-[#fc5200] hover:bg-[#e04900] text-white text-xs font-bold px-3 py-1.5 rounded-md transition-colors cursor-pointer"
+                onClick={handleConnectClick}
+                className="bg-[#fc5200] hover:bg-[#e04900] text-white text-xs font-bold px-3 py-1.5 rounded-md transition-colors cursor-pointer flex items-center gap-1.5"
               >
-                Connect Strava
+                <svg className="w-3.5 h-3.5 fill-white" viewBox="0 0 24 24">
+                  <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7.925 15.65h4.172" />
+                </svg>
+                <span>Connect Strava</span>
               </button>
             )}
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-xl w-full mx-auto px-4 py-6">
-        {/* Title */}
-        <div className="text-center mb-4">
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-neutral-900">
-            Swim Leaderboard
-          </h1>
-          <p className="text-xs text-neutral-500 mt-0.5">
-            Ranked by swims / week
-          </p>
-        </div>
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-xl w-full mx-auto px-4 py-8 flex flex-col justify-center">
+        {!athlete ? (
+          /* GATED STATE: Unconnected members cannot view the leaderboard */
+          <div className="my-auto py-12 text-center max-w-md mx-auto">
+            {/* Purdue Tri Logo */}
+            <div className="relative w-24 h-24 mx-auto mb-6">
+              <Image
+                src="/purdue_tri_logo.png"
+                alt="Purdue Triathlon Club"
+                fill
+                className="object-contain"
+                priority
+              />
+            </div>
 
-        {/* 1. Smaller Gold / Silver / Bronze Podium */}
-        {leaderboardData.length >= 3 && (
-          <ClassicPodium
-            entries={leaderboardData}
-            onSelectAthlete={setSelectedAthleteId}
-          />
+            <h1 className="text-2xl font-bold tracking-tight text-neutral-900">
+              Purdue Triathlon Club
+            </h1>
+            <p className="text-xs uppercase tracking-widest text-[#9d8353] font-bold mt-1">
+              Swim Tracker & Leaderboard
+            </p>
+
+            <div className="my-6 p-5 bg-neutral-50 border border-neutral-200 rounded-2xl text-xs text-neutral-600 leading-relaxed text-center">
+              <div className="flex items-center justify-center gap-1.5 font-bold text-neutral-900 mb-1">
+                <Lock className="w-3.5 h-3.5 text-neutral-700" />
+                <span>Members-Only Leaderboard</span>
+              </div>
+              Connect your Strava account to sign in, view weekly club rankings, and automatically sync every swim you upload.
+            </div>
+
+            {/* Connect Strava Button */}
+            <button
+              onClick={handleConnectClick}
+              className="w-full flex items-center justify-center gap-2.5 bg-[#fc5200] hover:bg-[#e04900] active:scale-[0.99] text-white font-bold text-sm py-3 px-6 rounded-xl shadow-md transition-all cursor-pointer"
+            >
+              <svg className="w-4 h-4 fill-white" viewBox="0 0 24 24">
+                <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7.925 15.65h4.172" />
+              </svg>
+              <span>Connect with Strava</span>
+            </button>
+
+            {/* In-app setup / Demo options (No .env editing needed) */}
+            <div className="mt-6 flex items-center justify-center gap-4 text-xs text-neutral-400">
+              <button
+                onClick={() => setConnectModalOpen(true)}
+                className="hover:text-neutral-800 transition-colors flex items-center gap-1"
+              >
+                <Settings className="w-3 h-3" />
+                <span>API Settings</span>
+              </button>
+              <span>•</span>
+              <button
+                onClick={() => handleDemoLogin(9001)}
+                className="hover:text-neutral-800 transition-colors"
+              >
+                Demo as Sarah
+              </button>
+              <span>•</span>
+              <button
+                onClick={() => handleDemoLogin(9002)}
+                className="hover:text-neutral-800 transition-colors"
+              >
+                Demo as Pete
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* CONNECTED STATE: Full Leaderboard Unlocked */
+          <>
+            <div className="text-center mb-3">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-neutral-900">
+                Swim Leaderboard
+              </h1>
+              <p className="text-xs text-neutral-500 mt-0.5">
+                Ranked by swims / week
+              </p>
+            </div>
+
+            {/* 1. Smaller Gold / Silver / Bronze Podium with Purdue Tri Club Logo */}
+            {leaderboardData.length >= 3 && (
+              <ClassicPodium
+                entries={leaderboardData}
+                onSelectAthlete={setSelectedAthleteId}
+              />
+            )}
+
+            {/* 2. The Rest in a List */}
+            <ClassicLeaderboardList
+              entries={leaderboardData}
+              onSelectAthlete={setSelectedAthleteId}
+            />
+          </>
         )}
-
-        {/* 2. The Rest in a List */}
-        <ClassicLeaderboardList
-          entries={leaderboardData}
-          onSelectAthlete={setSelectedAthleteId}
-        />
       </main>
 
       {/* Swimmer Stats Modal */}
@@ -228,12 +324,16 @@ function SwimTracker() {
         onClose={() => setSelectedAthleteId(null)}
       />
 
-      {/* Strava Connect Modal */}
+      {/* Strava Connect & In-App Setup Modal */}
       <StravaConnectModal
         isOpen={connectModalOpen}
         stravaConfigured={stravaConfigured}
         onClose={() => setConnectModalOpen(false)}
         onSelectDemoAthlete={handleDemoLogin}
+        onConfigSaved={async () => {
+          setStravaConfigured(true);
+          setToast({ type: 'success', message: 'Strava API configured!' });
+        }}
       />
     </div>
   );

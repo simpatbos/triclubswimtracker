@@ -1,23 +1,35 @@
 import { Athlete, StravaTokenResponse } from '../types';
-import { getAthleteById, updateAthleteLastSynced, upsertAthlete, upsertSwim } from './db';
+import {
+  getAthleteById,
+  updateAthleteLastSynced,
+  upsertAthlete,
+  upsertSwim,
+  getAppSetting,
+} from './db';
 import { metersToYards } from './date-utils';
 
 const STRAVA_AUTH_URL = 'https://www.strava.com/oauth/authorize';
 const STRAVA_TOKEN_URL = 'https://www.strava.com/oauth/token';
 const STRAVA_API_BASE = 'https://www.strava.com/api/v3';
 
+export function getStravaCredentials(): { clientId: string | null; clientSecret: string | null } {
+  const clientId = process.env.STRAVA_CLIENT_ID || getAppSetting('strava_client_id');
+  const clientSecret = process.env.STRAVA_CLIENT_SECRET || getAppSetting('strava_client_secret');
+  return {
+    clientId: clientId && clientId !== 'YOUR_STRAVA_CLIENT_ID' ? clientId : null,
+    clientSecret: clientSecret && clientSecret !== 'YOUR_STRAVA_CLIENT_SECRET' ? clientSecret : null,
+  };
+}
+
 export function isStravaConfigured(): boolean {
-  return Boolean(
-    process.env.STRAVA_CLIENT_ID &&
-    process.env.STRAVA_CLIENT_SECRET &&
-    process.env.STRAVA_CLIENT_ID !== 'YOUR_STRAVA_CLIENT_ID'
-  );
+  const { clientId, clientSecret } = getStravaCredentials();
+  return Boolean(clientId && clientSecret);
 }
 
 export function getStravaAuthUrl(redirectUri: string, state = 'swimtracker'): string {
-  const clientId = process.env.STRAVA_CLIENT_ID || '';
+  const { clientId } = getStravaCredentials();
   const params = new URLSearchParams({
-    client_id: clientId,
+    client_id: clientId || '',
     response_type: 'code',
     redirect_uri: redirectUri,
     approval_prompt: 'auto',
@@ -29,11 +41,10 @@ export function getStravaAuthUrl(redirectUri: string, state = 'swimtracker'): st
 }
 
 export async function exchangeStravaCode(code: string): Promise<StravaTokenResponse> {
-  const clientId = process.env.STRAVA_CLIENT_ID;
-  const clientSecret = process.env.STRAVA_CLIENT_SECRET;
+  const { clientId, clientSecret } = getStravaCredentials();
 
   if (!clientId || !clientSecret) {
-    throw new Error('Strava Client ID or Secret is not configured in environment variables.');
+    throw new Error('Strava Client ID or Secret is not configured.');
   }
 
   const response = await fetch(STRAVA_TOKEN_URL, {
@@ -70,8 +81,7 @@ export async function getValidAccessToken(athlete: Athlete): Promise<string> {
       throw new Error('Cannot refresh token: missing refresh token');
     }
 
-    const clientId = process.env.STRAVA_CLIENT_ID;
-    const clientSecret = process.env.STRAVA_CLIENT_SECRET;
+    const { clientId, clientSecret } = getStravaCredentials();
 
     const response = await fetch(STRAVA_TOKEN_URL, {
       method: 'POST',
@@ -186,4 +196,55 @@ export async function syncAthleteSwims(
     syncedCount,
     swimCount: swims.length,
   };
+}
+
+/**
+ * Sync a single activity (e.g. triggered by a Strava Webhook event when an athlete uploads a swim)
+ */
+export async function syncSingleActivity(
+  athleteId: number,
+  activityId: number
+): Promise<boolean> {
+  const athlete = getAthleteById(athleteId);
+  if (!athlete) return false;
+
+  const token = await getValidAccessToken(athlete);
+  const response = await fetch(`${STRAVA_API_BASE}/activities/${activityId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    console.error(`Failed to fetch single activity ${activityId}: ${response.statusText}`);
+    return false;
+  }
+
+  const act = (await response.json()) as StravaRawActivity;
+
+  // Only record if it's a swim
+  if (act.type === 'Swim' || act.sport_type === 'Swim') {
+    const startTimestamp = new Date(act.start_date).getTime();
+    const yards = metersToYards(act.distance);
+
+    upsertSwim({
+      id: act.id,
+      athlete_id: athleteId,
+      name: act.name || 'Purdue Tri Swim Workout',
+      distance_meters: act.distance,
+      distance_yards: yards,
+      moving_time: act.moving_time,
+      elapsed_time: act.elapsed_time || act.moving_time,
+      start_date: act.start_date,
+      start_date_local: act.start_date_local,
+      start_timestamp: startTimestamp,
+      average_speed: act.average_speed || 0,
+      is_demo: false,
+    });
+
+    updateAthleteLastSynced(athleteId);
+    return true;
+  }
+
+  return false;
 }

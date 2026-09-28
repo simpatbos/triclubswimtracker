@@ -34,7 +34,7 @@ export function getStravaAuthUrl(redirectUri: string, state = 'swimtracker'): st
     response_type: 'code',
     redirect_uri: redirectUri,
     approval_prompt: 'auto',
-    scope: 'read,activity:read_all',
+    scope: 'read,profile:read_all,activity:read_all',
     state,
   });
 

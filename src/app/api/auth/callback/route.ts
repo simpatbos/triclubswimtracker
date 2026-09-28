@@ -18,12 +18,15 @@ export async function GET(request: NextRequest) {
     const tokenData = await exchangeStravaCode(code);
     const { athlete, access_token, refresh_token, expires_at } = tokenData;
 
+    const rawProfile = athlete.profile || athlete.profile_medium || null;
+    const profile_url = rawProfile && rawProfile.startsWith('http') ? rawProfile : null;
+
     await upsertAthlete({
       id: athlete.id,
       firstname: athlete.firstname || 'Purdue',
       lastname: athlete.lastname || 'Swimmer',
       username: athlete.username || null,
-      profile_url: athlete.profile || athlete.profile_medium || null,
+      profile_url,
       access_token,
       refresh_token,
       token_expires_at: expires_at,

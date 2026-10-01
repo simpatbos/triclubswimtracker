@@ -157,25 +157,25 @@ export function PreviousWeeksModal({
       onClick={onClose}
     >
       <div
-        className="bg-white border border-neutral-300 rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl"
+        className="bg-white border border-neutral-300 rounded-2xl max-w-2xl w-full max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-4 sm:p-5 border-b border-neutral-200 flex items-center justify-between bg-neutral-50/80">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-white border border-neutral-200 shadow-xs flex items-center justify-center flex-shrink-0">
+        <div className="p-4 sm:p-5 border-b border-neutral-200 flex items-center justify-between bg-neutral-50/80 flex-shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white border border-neutral-200 shadow-xs flex items-center justify-center flex-shrink-0">
               <History className="w-5 h-5 text-neutral-800" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-neutral-900 tracking-tight leading-tight">
+                <h3 className="text-base font-bold text-neutral-900 tracking-tight leading-tight truncate">
                   Previous Weeks
                 </h3>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#cfb991] text-neutral-900 font-mono">
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#cfb991] text-neutral-900 font-mono flex-shrink-0">
                   Archive
                 </span>
               </div>
-              <p className="text-xs text-neutral-500 mt-0.5">
+              <p className="text-xs text-neutral-500 mt-0.5 truncate">
                 Official weekly final standings for the 2026/27 challenge
               </p>
             </div>
@@ -183,25 +183,25 @@ export function PreviousWeeksModal({
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-900 hover:bg-neutral-200 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-900 hover:bg-neutral-200 transition-colors cursor-pointer flex-shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Week Selector Dropdown Row */}
-        <div className="px-4 sm:px-6 py-3 border-b border-neutral-200 bg-neutral-50/50 flex items-center justify-between gap-3">
+        <div className="px-4 sm:px-6 py-2.5 sm:py-3 border-b border-neutral-200 bg-neutral-50/50 flex items-center justify-between gap-2.5 flex-shrink-0">
           <label
             htmlFor="archive-week-select"
-            className="text-xs font-bold uppercase tracking-wider text-neutral-700 flex items-center gap-1.5 cursor-pointer"
+            className="text-xs font-bold uppercase tracking-wider text-neutral-700 flex items-center gap-1.5 cursor-pointer flex-shrink-0"
           >
             <Calendar className="w-3.5 h-3.5 text-[#9d8353]" />
-            <span>Select Week</span>
+            <span className="hidden xs:inline">Select </span>Week
           </label>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             {isSwitching && (
-              <RefreshCw className="w-3.5 h-3.5 text-[#9d8353] animate-spin" />
+              <RefreshCw className="w-3.5 h-3.5 text-[#9d8353] animate-spin flex-shrink-0" />
             )}
 
             {loadingWeeks ? (
@@ -209,12 +209,12 @@ export function PreviousWeeksModal({
             ) : weeks.length === 0 ? (
               <span className="text-xs text-neutral-500 italic">No completed weeks yet</span>
             ) : (
-              <div className="relative">
+              <div className="relative min-w-0">
                 <select
                   id="archive-week-select"
                   value={selectedWeek?.weekNumber ?? ''}
                   onChange={e => handleWeekSelect(parseInt(e.target.value, 10))}
-                  className="appearance-none bg-white border border-neutral-300 rounded-xl pl-3.5 pr-8 py-1.5 text-xs font-bold text-neutral-900 shadow-2xs hover:border-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#cfb991] cursor-pointer"
+                  className="appearance-none bg-white border border-neutral-300 rounded-xl pl-3 pr-8 py-1.5 text-xs font-bold text-neutral-900 shadow-2xs hover:border-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#cfb991] cursor-pointer max-w-[190px] xs:max-w-[240px] sm:max-w-none truncate"
                 >
                   {weeks.map(week => (
                     <option key={week.weekNumber} value={week.weekNumber}>

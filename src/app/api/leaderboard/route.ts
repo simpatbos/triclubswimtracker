@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLeaderboard, getDataVersion } from '@/lib/db';
+import { syncAllAthletes } from '@/lib/strava';
 import { TimeframeOption, MetricOption } from '@/types';
 
 export const dynamic = 'force-dynamic';
@@ -7,6 +8,10 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+    if (searchParams.get('sync') === '1' || searchParams.get('sync') === 'true') {
+      await syncAllAthletes().catch(err => console.warn('Leaderboard sync parameter warning:', err));
+    }
+
     const timeframe = (searchParams.get('timeframe') || 'this_week') as TimeframeOption;
     const sortBy = (searchParams.get('sortBy') || 'swims') as MetricOption;
     const startMsParam = searchParams.get('startMs');

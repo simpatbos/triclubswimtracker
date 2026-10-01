@@ -9,6 +9,7 @@ export interface Athlete {
   token_expires_at?: number;
   last_synced_at?: number | null;
   in_club?: number;
+  is_manual?: number;
   created_at: number;
 }
 

@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
 
     // Run initial swim sync in the background or await
     try {
-      await syncAthleteSwims(athlete.id, 60);
+      await syncAthleteSwims(athlete.id);
     } catch (syncErr) {
       console.warn('Initial sync warning:', syncErr);
     }

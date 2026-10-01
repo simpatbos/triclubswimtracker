@@ -1,13 +1,17 @@
-import { Athlete, StravaTokenResponse } from '../types';
+import { Athlete, StravaTokenResponse } from '../types/index';
 import {
   getAthleteById,
+  getAllAthletes,
   updateAthleteLastSynced,
   upsertAthlete,
   upsertSwim,
   reconcileAthleteSwims,
   getAppSetting,
+  combineActivityNames,
+  consolidateSwimsInDb,
+  purgePreChallengeSwims,
 } from './db';
-import { metersToYards } from './date-utils';
+import { metersToYards, parseChallengeStartDate } from './date-utils';
 
 const STRAVA_AUTH_URL = 'https://www.strava.com/oauth/authorize';
 const STRAVA_TOKEN_URL = 'https://www.strava.com/oauth/token';
@@ -98,7 +102,8 @@ export async function getValidAccessToken(athlete: Athlete): Promise<string> {
     });
 
     if (!response.ok) {
-      throw new Error(`Token refresh failed: ${response.statusText}`);
+      const errText = await response.text();
+      throw new Error(`Token refresh failed (${response.status}): ${errText || response.statusText}`);
     }
 
     const refreshData = await response.json();
@@ -134,7 +139,7 @@ interface StravaRawActivity {
 
 export async function syncAthleteSwims(
   athleteId: number,
-  lookbackDays = 60
+  lookbackDays?: number
 ): Promise<{ syncedCount: number; swimCount: number }> {
   const athlete = await getAthleteById(athleteId);
   if (!athlete) {
@@ -142,7 +147,19 @@ export async function syncAthleteSwims(
   }
 
   const token = await getValidAccessToken(athlete);
-  const afterTimestamp = Math.floor((Date.now() - lookbackDays * 24 * 60 * 60 * 1000) / 1000);
+
+  // Strictly only fetch swims on or after the challenge start date
+  const challengeStart = parseChallengeStartDate();
+  const challengeStartTimestamp = Math.floor(challengeStart.getTime() / 1000);
+  const challengeStartMs = challengeStart.getTime();
+
+  const afterTimestamp =
+    lookbackDays !== undefined
+      ? Math.max(
+          challengeStartTimestamp,
+          Math.floor((Date.now() - lookbackDays * 24 * 60 * 60 * 1000) / 1000)
+        )
+      : challengeStartTimestamp;
 
   const allActivities: StravaRawActivity[] = [];
   let page = 1;
@@ -180,34 +197,76 @@ export async function syncAthleteSwims(
     page++;
   }
 
-  // Filter only swim activities
-  const swims = allActivities.filter(
-    a => a.type === 'Swim' || a.sport_type === 'Swim'
+  // Filter only swim activities strictly on or after the challenge kickoff date
+  const rawSwims = allActivities.filter(
+    a =>
+      (a.type === 'Swim' || a.sport_type === 'Swim') &&
+      new Date(a.start_date).getTime() >= challengeStartMs
   );
 
-  // Reconcile: delete any swims previously saved for this athlete within the lookback window
-  // that were deleted or modified away on Strava
-  const swimIds = swims.map(s => s.id);
-  await reconcileAthleteSwims(athleteId, afterTimestamp * 1000, swimIds);
+  // Group activities from 1 day into 1 consolidated activity
+  const dayGroups = new Map<string, StravaRawActivity[]>();
+  for (const act of rawSwims) {
+    const dateStr = act.start_date_local || act.start_date;
+    const dateKey = dateStr.slice(0, 10);
+    if (!dayGroups.has(dateKey)) {
+      dayGroups.set(dateKey, []);
+    }
+    dayGroups.get(dateKey)!.push(act);
+  }
+
+  interface ConsolidatedSwim {
+    id: number;
+    athlete_id: number;
+    name: string;
+    distance_meters: number;
+    distance_yards: number;
+    moving_time: number;
+    elapsed_time: number;
+    start_date: string;
+    start_date_local: string;
+    start_timestamp: number;
+    average_speed: number;
+  }
+
+  const consolidatedSwims: ConsolidatedSwim[] = [];
+
+  for (const dayActs of dayGroups.values()) {
+    dayActs.sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+    const earliest = dayActs[0];
+    const totalMeters = dayActs.reduce((sum, a) => sum + (Number(a.distance) || 0), 0);
+    const totalMovingTime = dayActs.reduce((sum, a) => sum + (Number(a.moving_time) || 0), 0);
+    const totalElapsedTime = dayActs.reduce(
+      (sum, a) => sum + (Number(a.elapsed_time) || Number(a.moving_time) || 0),
+      0
+    );
+    const yards = metersToYards(totalMeters);
+    const avgSpeed = totalMovingTime > 0 ? totalMeters / totalMovingTime : 0;
+    const name = combineActivityNames(dayActs.map(a => a.name));
+
+    consolidatedSwims.push({
+      id: earliest.id,
+      athlete_id: athleteId,
+      name: name || 'Purdue Tri Swim Workout',
+      distance_meters: totalMeters,
+      distance_yards: yards,
+      moving_time: totalMovingTime,
+      elapsed_time: totalElapsedTime,
+      start_date: earliest.start_date,
+      start_date_local: earliest.start_date_local,
+      start_timestamp: new Date(earliest.start_date).getTime(),
+      average_speed: avgSpeed,
+    });
+  }
+
+  // Reconcile: delete any swims previously saved for this athlete within the challenge window
+  // that were deleted, modified away, or consolidated into another record
+  const consolidatedIds = consolidatedSwims.map(s => s.id);
+  await reconcileAthleteSwims(athleteId, challengeStartMs, consolidatedIds);
 
   let syncedCount = 0;
-  for (const act of swims) {
-    const startTimestamp = new Date(act.start_date).getTime();
-    const yards = metersToYards(act.distance);
-
-    await upsertSwim({
-      id: act.id,
-      athlete_id: athleteId,
-      name: act.name || 'Purdue Tri Swim Workout',
-      distance_meters: act.distance,
-      distance_yards: yards,
-      moving_time: act.moving_time,
-      elapsed_time: act.elapsed_time || act.moving_time,
-      start_date: act.start_date,
-      start_date_local: act.start_date_local,
-      start_timestamp: startTimestamp,
-      average_speed: act.average_speed || 0,
-    });
+  for (const swim of consolidatedSwims) {
+    await upsertSwim(swim);
     syncedCount++;
   }
 
@@ -215,8 +274,82 @@ export async function syncAthleteSwims(
 
   return {
     syncedCount,
-    swimCount: swims.length,
+    swimCount: consolidatedSwims.length,
   };
+}
+
+export interface SyncError {
+  athleteId?: number;
+  error: string;
+}
+
+export interface SyncAllResult {
+  totalAthletes: number;
+  successCount: number;
+  errors: SyncError[];
+}
+
+let inFlightSyncAll: Promise<SyncAllResult> | null = null;
+let lastSyncAllCompletedAt = 0;
+
+export async function syncAllAthletes(
+  lookbackDays?: number,
+  force = false
+): Promise<SyncAllResult> {
+  if (inFlightSyncAll) {
+    return inFlightSyncAll;
+  }
+
+  const now = Date.now();
+  if (!force && now - lastSyncAllCompletedAt < 5000) {
+    return { totalAthletes: 0, successCount: 0, errors: [] };
+  }
+
+  if (!isStravaConfigured()) {
+    await purgePreChallengeSwims();
+    await consolidateSwimsInDb();
+    return { totalAthletes: 0, successCount: 0, errors: [{ error: 'Strava not configured' }] };
+  }
+
+  inFlightSyncAll = (async () => {
+    try {
+      // Purge any swims logged before challenge kickoff
+      await purgePreChallengeSwims();
+
+      const athletes = await getAllAthletes();
+      const stravaAthletes = athletes.filter(a => Boolean(a.access_token) && !a.is_manual);
+      if (stravaAthletes.length === 0) {
+        await consolidateSwimsInDb();
+        return { totalAthletes: athletes.length, successCount: 0, errors: [] };
+      }
+
+      const results = await Promise.allSettled(
+        stravaAthletes.map(a => syncAthleteSwims(a.id, lookbackDays))
+      );
+
+      let successCount = 0;
+      const errors: SyncError[] = [];
+      results.forEach((r, idx) => {
+        if (r.status === 'fulfilled') {
+          successCount++;
+        } else {
+          const errMsg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+          console.warn(`Sync failed for athlete ${stravaAthletes[idx].id}:`, errMsg);
+          errors.push({ athleteId: stravaAthletes[idx].id, error: errMsg });
+        }
+      });
+
+      // Guarantee any older swims in DB are also consolidated
+      await consolidateSwimsInDb();
+
+      lastSyncAllCompletedAt = Date.now();
+      return { totalAthletes: athletes.length, successCount, errors };
+    } finally {
+      inFlightSyncAll = null;
+    }
+  })();
+
+  return inFlightSyncAll;
 }
 
 /**
@@ -229,44 +362,14 @@ export async function syncSingleActivity(
   const athlete = await getAthleteById(athleteId);
   if (!athlete) return false;
 
-  const token = await getValidAccessToken(athlete);
-  const response = await fetch(`${STRAVA_API_BASE}/activities/${activityId}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-
-  if (!response.ok) {
-    console.error(`Failed to fetch single activity ${activityId}: ${response.statusText}`);
+  try {
+    // Sync recent swims for this athlete to properly consolidate all activities for that day
+    await syncAthleteSwims(athleteId, 14);
+    return true;
+  } catch (err) {
+    console.error(`Failed to sync activity ${activityId} via syncAthleteSwims:`, err);
     return false;
   }
-
-  const act = (await response.json()) as StravaRawActivity;
-
-  // Only record if it's a swim
-  if (act.type === 'Swim' || act.sport_type === 'Swim') {
-    const startTimestamp = new Date(act.start_date).getTime();
-    const yards = metersToYards(act.distance);
-
-    await upsertSwim({
-      id: act.id,
-      athlete_id: athleteId,
-      name: act.name || 'Purdue Tri Swim Workout',
-      distance_meters: act.distance,
-      distance_yards: yards,
-      moving_time: act.moving_time,
-      elapsed_time: act.elapsed_time || act.moving_time,
-      start_date: act.start_date,
-      start_date_local: act.start_date_local,
-      start_timestamp: startTimestamp,
-      average_speed: act.average_speed || 0,
-    });
-
-    await updateAthleteLastSynced(athleteId);
-    return true;
-  }
-
-  return false;
 }
 
 export async function deauthorizeStrava(accessToken: string): Promise<boolean> {

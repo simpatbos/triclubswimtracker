@@ -3,7 +3,7 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
-import { X, LogOut, Trash2, AlertTriangle, ShieldCheck, RefreshCw, Check } from 'lucide-react';
+import { X, LogOut, Trash2, AlertTriangle, ShieldCheck, RefreshCw, Check, Plus, User } from 'lucide-react';
 import { Athlete } from '@/types';
 
 interface SettingsModalProps {
@@ -13,6 +13,7 @@ interface SettingsModalProps {
   onLogout: () => Promise<void>;
   onAccountDeleted: () => Promise<void>;
   onRefresh?: () => Promise<void>;
+  onOpenLogSwim?: () => void;
 }
 
 export function SettingsModal({
@@ -22,6 +23,7 @@ export function SettingsModal({
   onLogout,
   onAccountDeleted,
   onRefresh,
+  onOpenLogSwim,
 }: SettingsModalProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -99,13 +101,13 @@ export function SettingsModal({
       onClick={onClose}
     >
       <div
-        className="bg-white border border-neutral-300 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl"
+        className="bg-white border border-neutral-300 rounded-2xl max-w-md w-full max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-5 border-b border-neutral-200 flex items-center justify-between bg-neutral-50/80">
-          <div className="flex items-center gap-3">
-            <div className="relative w-11 h-11 rounded-full overflow-hidden bg-white border-2 border-[#cfb991] shadow-xs flex-shrink-0">
+        <div className="p-4 sm:p-5 border-b border-neutral-200 flex items-center justify-between bg-neutral-50/80 flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-full overflow-hidden bg-white border-2 border-[#cfb991] shadow-xs flex-shrink-0">
               {athlete.profile_url ? (
                 <Image
                   src={athlete.profile_url}
@@ -121,11 +123,11 @@ export function SettingsModal({
                 </div>
               )}
             </div>
-            <div>
-              <h3 className="text-base font-bold text-neutral-900 tracking-tight leading-tight">
+            <div className="min-w-0">
+              <h3 className="text-base font-bold text-neutral-900 tracking-tight leading-tight truncate">
                 {athlete.firstname} {athlete.lastname}
               </h3>
-              <p className="text-xs text-neutral-500 font-mono mt-0.5">
+              <p className="text-xs text-neutral-500 font-mono mt-0.5 truncate">
                 @{athlete.username || `athlete_${athlete.id}`}
               </p>
             </div>
@@ -133,14 +135,14 @@ export function SettingsModal({
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-900 hover:bg-neutral-200 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-900 hover:bg-neutral-200 transition-colors cursor-pointer flex-shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-5">
+        <div className="p-4 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto flex-1">
           {errorMessage && (
             <div className="p-3 text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-lg">
               {errorMessage}
@@ -152,43 +154,78 @@ export function SettingsModal({
             <div className="mt-0.5 w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0 ring-4 ring-emerald-100" />
             <div className="text-xs text-neutral-600 leading-relaxed">
               <span className="font-bold text-neutral-900 block mb-0.5 flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Strava Sync Active
+                {athlete.is_manual ? (
+                  <>
+                    <User className="w-3.5 h-3.5 text-[#9d8353]" /> Manual Tracking Active
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Strava Sync Active
+                  </>
+                )}
               </span>
-              The server continuously tracks your swim uploads and keeps your standing on the leaderboard, even when you are logged out.
+              {athlete.is_manual
+                ? 'You manually input your swim yardage and workouts. Your stats and standings remain active on the leaderboard.'
+                : 'The server continuously tracks your swim uploads and keeps your standing on the leaderboard, even when you are logged out.'}
             </div>
           </div>
 
-          {/* Refresh Data Section */}
-          <div className="border border-neutral-200 rounded-xl p-4 bg-neutral-50/40">
-            <div className="flex items-center justify-between mb-1">
-              <h4 className="text-xs font-bold text-neutral-900 uppercase tracking-wider flex items-center gap-1.5">
-                <RefreshCw className="w-3.5 h-3.5 text-[#9d8353]" />
-                Sync & Refresh Swims
-              </h4>
-            </div>
-            <p className="text-xs text-neutral-500 mb-3 leading-relaxed">
-              If you modified, renamed, or deleted an activity on Strava, refresh your account to update your swims and leaderboard standing immediately.
-            </p>
-            <button
-              type="button"
-              onClick={handleRefreshClick}
-              disabled={isRefreshing}
-              className="w-full flex items-center justify-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-neutral-800 bg-white border border-neutral-300 rounded-lg hover:bg-neutral-50 hover:border-neutral-400 active:scale-[0.99] transition-all cursor-pointer disabled:opacity-50 shadow-2xs text-center"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 text-[#9d8353] flex-shrink-0 ${isRefreshing ? 'animate-spin' : ''}`} />
-              <span>
-                {isRefreshing
-                  ? 'Refreshing your data...'
-                  : 'Refresh'}
-              </span>
-            </button>
-            {refreshSuccess && (
-              <p className="text-[11px] text-emerald-700 font-semibold mt-2.5 text-center flex items-center justify-center gap-1 animate-in fade-in duration-150">
-                <Check className="w-3.5 h-3.5" />
-                <span>Data refreshed successfully! Leaderboard updated.</span>
+          {/* Action Section: Log Swim for Manual or Refresh for Strava */}
+          {athlete.is_manual ? (
+            <div className="border border-neutral-200 rounded-xl p-4 bg-neutral-50/40">
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-xs font-bold text-neutral-900 uppercase tracking-wider flex items-center gap-1.5">
+                  <Plus className="w-3.5 h-3.5 text-[#9d8353]" />
+                  Log Swim Workout
+                </h4>
+              </div>
+              <p className="text-xs text-neutral-500 mb-3 leading-relaxed">
+                Add a new swim workout or update your daily yardage. Activities logged on the same calendar day are consolidated into 1 activity.
               </p>
-            )}
-          </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  if (onOpenLogSwim) onOpenLogSwim();
+                }}
+                className="w-full flex items-center justify-center gap-2 px-3.5 py-2.5 text-xs font-bold text-white bg-neutral-900 rounded-lg hover:bg-neutral-800 active:scale-[0.99] transition-all cursor-pointer shadow-2xs text-center"
+              >
+                <Plus className="w-3.5 h-3.5 text-[#cfb991]" />
+                <span>+ Log New Swim</span>
+              </button>
+            </div>
+          ) : (
+            <div className="border border-neutral-200 rounded-xl p-4 bg-neutral-50/40">
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-xs font-bold text-neutral-900 uppercase tracking-wider flex items-center gap-1.5">
+                  <RefreshCw className="w-3.5 h-3.5 text-[#9d8353]" />
+                  Sync & Refresh Swims
+                </h4>
+              </div>
+              <p className="text-xs text-neutral-500 mb-3 leading-relaxed">
+                If you modified, renamed, or deleted an activity on Strava, refresh your account to update your swims and leaderboard standing immediately.
+              </p>
+              <button
+                type="button"
+                onClick={handleRefreshClick}
+                disabled={isRefreshing}
+                className="w-full flex items-center justify-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-neutral-800 bg-white border border-neutral-300 rounded-lg hover:bg-neutral-50 hover:border-neutral-400 active:scale-[0.99] transition-all cursor-pointer disabled:opacity-50 shadow-2xs text-center"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-[#9d8353] flex-shrink-0 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span>
+                  {isRefreshing
+                    ? 'Refreshing your data...'
+                    : 'Refresh'}
+                </span>
+              </button>
+              {refreshSuccess && (
+                <p className="text-[11px] text-emerald-700 font-semibold mt-2.5 text-center flex items-center justify-center gap-1 animate-in fade-in duration-150">
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Data refreshed successfully! Leaderboard updated.</span>
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Session Section */}
           <div className="border border-neutral-200 rounded-xl p-4">

@@ -19,13 +19,13 @@ export function InfoModal({ isOpen, onClose }: InfoModalProps) {
       onClick={onClose}
     >
       <div
-        className="bg-white border border-neutral-300 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl"
+        className="bg-white border border-neutral-300 rounded-2xl max-w-md w-full max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-5 border-b border-neutral-200 flex items-center justify-between bg-neutral-50/80">
-          <div className="flex items-center gap-3">
-            <div className="relative w-10 h-10 rounded-full overflow-hidden bg-white border-2 border-[#cfb991] shadow-xs flex items-center justify-center flex-shrink-0">
+        <div className="p-4 sm:p-5 border-b border-neutral-200 flex items-center justify-between bg-neutral-50/80 flex-shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden bg-white border-2 border-[#cfb991] shadow-xs flex items-center justify-center flex-shrink-0">
               <Image
                 src="/purdue_tri_logo.png"
                 alt="Purdue Triathlon Club"
@@ -34,8 +34,8 @@ export function InfoModal({ isOpen, onClose }: InfoModalProps) {
                 className="object-contain"
               />
             </div>
-            <div>
-              <h3 className="text-base font-bold text-neutral-900 tracking-tight leading-tight">
+            <div className="min-w-0">
+              <h3 className="text-base font-bold text-neutral-900 tracking-tight leading-tight truncate">
                 About the Swim Tracker
               </h3>
               <p className="text-xs text-[#9d8353] font-bold uppercase tracking-wider mt-0.5">
@@ -46,16 +46,16 @@ export function InfoModal({ isOpen, onClose }: InfoModalProps) {
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-900 hover:bg-neutral-200 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-900 hover:bg-neutral-200 transition-colors cursor-pointer flex-shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 space-y-4 text-xs text-neutral-700 leading-relaxed">
+        <div className="p-4 sm:p-6 space-y-4 text-xs text-neutral-700 leading-relaxed overflow-y-auto flex-1">
           {/* Mission Callout */}
-          <div className="bg-amber-50/70 border border-[#cfb991] rounded-xl p-4">
+          <div className="bg-amber-50/70 border border-[#cfb991] rounded-xl p-3.5 sm:p-4">
             <div className="flex items-center gap-2 font-bold text-neutral-900 text-sm mb-1.5">
               <Trophy className="w-4 h-4 text-[#9d8353]" />
               <span>Road to Nationals</span>
@@ -72,8 +72,8 @@ export function InfoModal({ isOpen, onClose }: InfoModalProps) {
                 1
               </div>
               <div>
-                <span className="font-bold text-neutral-900 block">Connect Strava Once</span>
-                <span>Authenticate your Strava profile. Your swim workouts automatically sync to the club server in real time.</span>
+                <span className="font-bold text-neutral-900 block">Connect Strava or Log Manually</span>
+                <span>Authenticate your Strava profile or log in manually without Strava to record workout yardage directly to the club leaderboard.</span>
               </div>
             </div>
 

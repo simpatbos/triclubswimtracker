@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
         profile_url: raw.profile_url,
         last_synced_at: raw.last_synced_at,
         in_club: 1,
+        is_manual: raw.is_manual ?? 0,
       };
     }
   }

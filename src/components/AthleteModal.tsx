@@ -158,13 +158,13 @@ export function AthleteModal({
       onClick={onClose}
     >
       <div
-        className="bg-white border border-neutral-300 rounded-2xl max-w-xl w-full max-h-[85vh] flex flex-col overflow-hidden shadow-2xl"
+        className="bg-white border border-neutral-300 rounded-2xl max-w-xl w-full max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="p-5 border-b border-neutral-200 flex items-center justify-between bg-neutral-50/80">
-          <div className="flex items-center gap-3">
-            <div className="relative w-12 h-12 rounded-full overflow-hidden bg-white border-2 border-[#cfb991] shadow-xs flex-shrink-0">
+        <div className="p-4 sm:p-5 border-b border-neutral-200 flex items-center justify-between bg-neutral-50/80 flex-shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="relative w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden bg-white border-2 border-[#cfb991] shadow-xs flex-shrink-0">
               {athlete?.profile_url ? (
                 <Image
                   src={athlete.profile_url}
@@ -175,22 +175,22 @@ export function AthleteModal({
                   unoptimized
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-lg font-bold text-neutral-800">
+                <div className="w-full h-full flex items-center justify-center text-base sm:text-lg font-bold text-neutral-800">
                   {athlete?.firstname?.[0] || 'P'}
                 </div>
               )}
             </div>
-            <div>
-              <h3 className="text-base font-bold text-neutral-900 tracking-tight leading-tight">
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-bold text-neutral-900 tracking-tight leading-tight truncate">
                 {athlete ? `${athlete.firstname} ${athlete.lastname}` : 'Loading...'}
               </h3>
-              <p className="text-xs text-neutral-500 font-mono mt-0.5">
+              <p className="text-[11px] sm:text-xs text-neutral-500 font-mono mt-0.5 truncate">
                 @{athlete?.username || 'purduetri'}
               </p>
 
               {/* Medal Count Badges: Only show if athlete has a medal(s) */}
               {medals && medals.total > 0 && (
-                <div className="flex items-center gap-1.5 mt-1.5">
+                <div className="flex items-center gap-1 sm:gap-1.5 mt-1 flex-wrap">
                   {medals.gold > 0 && (
                     <span
                       className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-100/90 border border-amber-300 text-amber-950 text-[10px] font-black font-mono shadow-2xs"
@@ -231,14 +231,14 @@ export function AthleteModal({
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-900 hover:bg-neutral-200 transition-colors"
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-900 hover:bg-neutral-200 transition-colors flex-shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Content */}
-        <div className="p-6 overflow-y-auto space-y-5">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5 flex-1">
           {loading ? (
             <div className="py-12 text-center text-neutral-400">
               <Activity className="w-6 h-6 animate-pulse mx-auto mb-2 text-[#9d8353]" />
@@ -275,37 +275,37 @@ export function AthleteModal({
               </div>
 
               {/* Summary Stats Strip */}
-              <div className="grid grid-cols-3 gap-2.5">
-                <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-3 text-center">
-                  <div className="text-[10px] uppercase font-bold text-neutral-500 tracking-wider mb-0.5 flex items-center justify-center gap-1">
-                    <Waves className="w-3 h-3 text-[#9d8353]" />
-                    <span>{viewMode === 'challenge' ? 'Yds / Week' : 'Total Yards'}</span>
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5">
+                <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-2 sm:p-3 text-center">
+                  <div className="text-[9px] sm:text-[10px] uppercase font-bold text-neutral-500 tracking-wider mb-0.5 flex items-center justify-center gap-1">
+                    <Waves className="w-3 h-3 text-[#9d8353] flex-shrink-0" />
+                    <span className="truncate">{viewMode === 'challenge' ? 'Yds / Week' : 'Total Yards'}</span>
                   </div>
-                  <div className="text-base sm:text-lg font-black text-neutral-900 font-mono">
+                  <div className="text-sm sm:text-lg font-black text-neutral-900 font-mono truncate">
                     {viewMode === 'challenge' ? (
                       <>
                         {avgYardsPerWeek.toLocaleString()}{' '}
-                        <span className="text-[10px] text-neutral-500 font-normal">yds/wk</span>
+                        <span className="text-[9px] sm:text-[10px] text-neutral-500 font-normal">yds/wk</span>
                       </>
                     ) : (
                       <>
                         {totalYards.toLocaleString()}{' '}
-                        <span className="text-[10px] text-neutral-500 font-normal">yds</span>
+                        <span className="text-[9px] sm:text-[10px] text-neutral-500 font-normal">yds</span>
                       </>
                     )}
                   </div>
                 </div>
 
-                <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-3 text-center">
-                  <div className="text-[10px] uppercase font-bold text-neutral-500 tracking-wider mb-0.5 flex items-center justify-center gap-1">
-                    <Flame className="w-3 h-3 text-orange-600" />
-                    <span>{viewMode === 'challenge' ? 'Swims / Week' : 'Total Swims'}</span>
+                <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-2 sm:p-3 text-center">
+                  <div className="text-[9px] sm:text-[10px] uppercase font-bold text-neutral-500 tracking-wider mb-0.5 flex items-center justify-center gap-1">
+                    <Flame className="w-3 h-3 text-orange-600 flex-shrink-0" />
+                    <span className="truncate">{viewMode === 'challenge' ? 'Swims / Week' : 'Total Swims'}</span>
                   </div>
-                  <div className="text-base sm:text-lg font-black text-neutral-900 font-mono">
+                  <div className="text-sm sm:text-lg font-black text-neutral-900 font-mono truncate">
                     {viewMode === 'challenge' ? (
                       <>
                         {formatSwimsPerWeek(avgSwimsPerWeek)}{' '}
-                        <span className="text-[10px] text-neutral-500 font-normal">swims/wk</span>
+                        <span className="text-[9px] sm:text-[10px] text-neutral-500 font-normal">swims/wk</span>
                       </>
                     ) : (
                       currentSwims.length
@@ -313,12 +313,12 @@ export function AthleteModal({
                   </div>
                 </div>
 
-                <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-3 text-center">
-                  <div className="text-[10px] uppercase font-bold text-neutral-500 tracking-wider mb-0.5 flex items-center justify-center gap-1">
-                    <Timer className="w-3 h-3 text-neutral-600" />
+                <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-2 sm:p-3 text-center">
+                  <div className="text-[9px] sm:text-[10px] uppercase font-bold text-neutral-500 tracking-wider mb-0.5 flex items-center justify-center gap-1">
+                    <Timer className="w-3 h-3 text-neutral-600 flex-shrink-0" />
                     <span>Avg Pace</span>
                   </div>
-                  <div className="text-base sm:text-lg font-black text-neutral-900 font-mono">
+                  <div className="text-sm sm:text-lg font-black text-neutral-900 font-mono truncate">
                     {overallPace}
                   </div>
                 </div>
@@ -327,12 +327,12 @@ export function AthleteModal({
               {/* View Mode 1: THIS WEEK -> Specific Swims as Items */}
               {viewMode === 'this_week' && (
                 <div>
-                  <div className="flex items-center justify-between mb-2.5">
+                  <div className="flex items-center justify-between mb-2 sm:mb-2.5">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-700 flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5 text-neutral-700" />
                       <span>This Week&apos;s Swims ({thisWeekSwims.length})</span>
                     </h4>
-                    <span className="text-[11px] text-neutral-500 font-mono">
+                    <span className="text-[10px] sm:text-[11px] text-neutral-500 font-mono">
                       {thisWeekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} -{' '}
                       {thisWeekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </span>
@@ -353,13 +353,13 @@ export function AthleteModal({
                         return (
                           <div
                             key={swim.id}
-                            className="bg-white border border-neutral-200 rounded-xl p-3.5 flex items-center justify-between hover:border-neutral-400 transition-colors shadow-2xs"
+                            className="bg-white border border-neutral-200 rounded-xl p-3 sm:p-3.5 flex items-center justify-between gap-2.5 hover:border-neutral-400 transition-colors shadow-2xs"
                           >
-                            <div>
-                              <div className="font-bold text-neutral-900 text-xs sm:text-sm">
+                            <div className="min-w-0 flex-1">
+                              <div className="font-bold text-neutral-900 text-xs sm:text-sm truncate">
                                 {swim.name}
                               </div>
-                              <div className="text-[11px] text-neutral-500 flex items-center gap-2 mt-0.5 font-mono">
+                              <div className="text-[10px] sm:text-[11px] text-neutral-500 flex items-center gap-1.5 sm:gap-2 mt-0.5 font-mono">
                                 <span>
                                   {swimDate.toLocaleDateString('en-US', {
                                     weekday: 'short',
@@ -380,22 +380,28 @@ export function AthleteModal({
                             <div className="text-right flex-shrink-0">
                               <div className="font-mono font-black text-neutral-900 text-xs sm:text-sm">
                                 {Math.round(swim.distance_yards).toLocaleString()}{' '}
-                                <span className="text-[10px] text-neutral-500">yds</span>
+                                <span className="text-[10px] text-neutral-500 font-normal">yds</span>
                               </div>
-                              <div className="text-[11px] text-neutral-500 font-mono flex items-center justify-end gap-2 mt-0.5">
+                              <div className="text-[10px] sm:text-[11px] text-neutral-500 font-mono flex items-center justify-end gap-1.5 sm:gap-2 mt-0.5">
                                 <span>{formatDuration(swim.moving_time)}</span>
                                 <span>•</span>
                                 <span>{pace}</span>
-                                <a
-                                  href={`https://www.strava.com/activities/${swim.id}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-[#fc5200] hover:underline ml-1 inline-flex items-center gap-0.5"
-                                  title="View on Strava"
-                                >
-                                  <span>Strava</span>
-                                  <ExternalLink className="w-2.5 h-2.5" />
-                                </a>
+                                {athlete?.is_manual ? (
+                                  <span className="text-neutral-500 font-mono text-[9px] sm:text-[10px] ml-0.5 sm:ml-1 px-1.5 py-0.2 sm:py-0.5 rounded bg-neutral-100 border border-neutral-200">
+                                    Manual
+                                  </span>
+                                ) : (
+                                  <a
+                                    href={`https://www.strava.com/activities/${swim.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[#fc5200] hover:underline ml-0.5 sm:ml-1 inline-flex items-center gap-0.5"
+                                    title="View on Strava"
+                                  >
+                                    <span>Strava</span>
+                                    <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -409,77 +415,77 @@ export function AthleteModal({
               {/* View Mode 2: SWIM CHALLENGE -> Completed challenge weeks */}
               {viewMode === 'challenge' && (
                 <div>
-                  <div className="flex items-center justify-between mb-2.5">
+                  <div className="flex items-center justify-between mb-2 sm:mb-2.5">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-700 flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5 text-neutral-700" />
                       <span>Completed Challenge Weeks</span>
                     </h4>
                   </div>
 
-                    <div className="space-y-2.5">
-                      {weeklyBreakdown.map(wb => (
-                        <div
-                          key={wb.weekNumber}
-                          className="bg-white border border-neutral-200 rounded-xl p-3.5 sm:p-4 flex items-center justify-between hover:border-neutral-400 transition-colors shadow-2xs"
-                        >
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-sm text-neutral-900">
-                                Week {wb.weekNumber}
+                  <div className="space-y-2 sm:space-y-2.5">
+                    {weeklyBreakdown.map(wb => (
+                      <div
+                        key={wb.weekNumber}
+                        className="bg-white border border-neutral-200 rounded-xl p-3 sm:p-4 flex items-center justify-between gap-2.5 hover:border-neutral-400 transition-colors shadow-2xs"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                            <span className="font-bold text-xs sm:text-sm text-neutral-900">
+                              Week {wb.weekNumber}
+                            </span>
+                            {medals?.weeklyMedals?.[wb.weekNumber] === 'gold' && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-amber-100/90 border border-amber-300 text-amber-950 text-[9px] font-black font-mono">
+                                <span>🥇</span>
+                                <span>1st</span>
                               </span>
-                              {medals?.weeklyMedals?.[wb.weekNumber] === 'gold' && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-amber-100/90 border border-amber-300 text-amber-950 text-[9px] font-black font-mono">
-                                  <span>🥇</span>
-                                  <span>1st</span>
-                                </span>
-                              )}
-                              {medals?.weeklyMedals?.[wb.weekNumber] === 'silver' && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-slate-100 border border-slate-300 text-slate-700 text-[9px] font-black font-mono">
-                                  <span>🥈</span>
-                                  <span>2nd</span>
-                                </span>
-                              )}
-                              {medals?.weeklyMedals?.[wb.weekNumber] === 'bronze' && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-neutral-900 border border-neutral-950 text-[#cfb991] text-[9px] font-black font-mono">
-                                  <span>🥉</span>
-                                  <span>3rd</span>
-                                </span>
-                              )}
+                            )}
+                            {medals?.weeklyMedals?.[wb.weekNumber] === 'silver' && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-slate-100 border border-slate-300 text-slate-700 text-[9px] font-black font-mono">
+                                <span>🥈</span>
+                                <span>2nd</span>
+                              </span>
+                            )}
+                            {medals?.weeklyMedals?.[wb.weekNumber] === 'bronze' && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-neutral-900 border border-neutral-950 text-[#cfb991] text-[9px] font-black font-mono">
+                                <span>🥉</span>
+                                <span>3rd</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] sm:text-xs text-neutral-500 font-mono mt-0.5 truncate">
+                            {wb.dateRange}
+                          </div>
+                        </div>
+
+                        {/* Yds / Week & Swims / Week for this week */}
+                        <div className="text-right flex items-center gap-2.5 sm:gap-6 flex-shrink-0">
+                          <div>
+                            <div className="text-[9px] sm:text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
+                              Yards
                             </div>
-                            <div className="text-xs text-neutral-500 font-mono mt-0.5">
-                              {wb.dateRange}
+                            <div className="font-mono font-black text-xs sm:text-base text-neutral-900">
+                              {wb.totalYards.toLocaleString()}{' '}
+                              <span className="text-[10px] text-neutral-500 font-normal">yds</span>
                             </div>
                           </div>
 
-                          {/* Yds / Week & Swims / Week for this week */}
-                          <div className="text-right flex items-center gap-4 sm:gap-6">
-                            <div>
-                              <div className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
-                                Yards
-                              </div>
-                              <div className="font-mono font-black text-sm sm:text-base text-neutral-900">
-                                {wb.totalYards.toLocaleString()}{' '}
-                                <span className="text-[10px] text-neutral-500 font-normal">yds</span>
-                              </div>
+                          <div className="border-l border-neutral-200 pl-2.5 sm:pl-6 text-right">
+                            <div className="text-[9px] sm:text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
+                              Swims
                             </div>
-
-                            <div className="border-l border-neutral-200 pl-4 sm:pl-6 text-left sm:text-right">
-                              <div className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
-                                Swims
-                              </div>
-                              <div className="font-mono font-black text-sm sm:text-base text-neutral-900">
-                                {wb.totalSwims}{' '}
-                                <span className="text-[10px] text-neutral-500 font-normal">
-                                  swim{wb.totalSwims === 1 ? '' : 's'}
-                                </span>
-                              </div>
+                            <div className="font-mono font-black text-xs sm:text-base text-neutral-900">
+                              {wb.totalSwims}{' '}
+                              <span className="text-[10px] text-neutral-500 font-normal">
+                                swim{wb.totalSwims === 1 ? '' : 's'}
+                              </span>
                             </div>
                           </div>
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    ))}
                   </div>
-                )}
+                </div>
+              )}
             </>
           )}
         </div>

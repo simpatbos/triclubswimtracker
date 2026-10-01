@@ -28,11 +28,11 @@ export function ClassicPodium({
   const renderAthleteCard = (entry: LeaderboardEntry | null, placeholderPlace: number) => {
     if (!entry) {
       return (
-        <div className="flex items-center gap-2 p-1.5 opacity-40 w-full">
-          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-full border border-dashed border-neutral-400 flex items-center justify-center text-[10px] text-neutral-400 font-mono">
+        <div className="flex flex-col items-center justify-center p-1 sm:p-1.5 opacity-40 w-full text-center">
+          <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-full border border-dashed border-neutral-400 flex items-center justify-center text-[10px] text-neutral-400 font-mono mb-1">
             #{placeholderPlace}
           </div>
-          <div className="text-left text-xs text-neutral-400 italic">
+          <div className="text-[10px] sm:text-xs text-neutral-400 italic">
             Awaiting member
           </div>
         </div>
@@ -44,16 +44,16 @@ export function ClassicPodium({
     return (
       <div
         onClick={() => onSelectAthlete(entry.athlete.id)}
-        className={`flex items-center gap-2 p-1.5 cursor-pointer rounded-lg transition-all w-full ${
+        className={`flex flex-col items-center text-center p-1 sm:p-1.5 cursor-pointer rounded-xl transition-all w-full min-w-0 ${
           isCurrentUser
             ? 'bg-amber-50/80 border-2 border-[#cfb991] shadow-xs'
-            : 'hover:bg-neutral-100'
+            : 'hover:bg-neutral-100 active:bg-neutral-200'
         }`}
       >
-        {/* PFP on left */}
+        {/* PFP on top */}
         <div
-          className={`relative w-9 h-9 sm:w-11 sm:h-11 rounded-full overflow-hidden bg-neutral-200 border flex-shrink-0 ${
-            isCurrentUser ? 'border-[#cfb991] ring-1 ring-[#cfb991]' : 'border-neutral-300'
+          className={`relative w-9 h-9 sm:w-11 sm:h-11 rounded-full overflow-hidden bg-neutral-200 border flex-shrink-0 mb-1 ${
+            isCurrentUser ? 'border-[#cfb991] ring-2 ring-[#cfb991]' : 'border-neutral-300'
           }`}
         >
           {entry.athlete.profile_url ? (
@@ -72,26 +72,29 @@ export function ClassicPodium({
           )}
         </div>
 
-        {/* Name and stats to right of PFP */}
-        <div className="min-w-0 text-left">
-          <div className="font-bold text-xs sm:text-sm text-neutral-900 truncate leading-tight flex items-center gap-1">
-            <span>
+        {/* Name and stats */}
+        <div className="w-full min-w-0">
+          <div className="font-bold text-[11px] sm:text-xs text-neutral-900 truncate leading-tight flex items-center justify-center gap-1">
+            <span className="truncate">
               {entry.athlete.firstname} {entry.athlete.lastname}
             </span>
             {isCurrentUser && (
-              <span className="px-1 py-0.2 text-[8px] sm:text-[9px] font-bold bg-[#cfb991] text-neutral-900 rounded font-mono leading-none">
+              <span className="px-1 py-0.2 text-[7px] sm:text-[8px] font-bold bg-[#cfb991] text-neutral-900 rounded font-mono leading-none flex-shrink-0">
                 YOU
               </span>
             )}
           </div>
-          <div className="text-[11px] sm:text-xs font-semibold text-neutral-900 leading-tight mt-0.5">
+          <div className="text-[10px] sm:text-[11px] font-semibold text-neutral-900 leading-tight mt-0.5 truncate">
             {isChallengeView ? (
-              <span>{formatSwimsPerWeek(entry.currentPeriod.swimsPerWeek ?? entry.currentPeriod.swims)} swims/wk</span>
+              <>
+                <span className="sm:hidden">{formatSwimsPerWeek(entry.currentPeriod.swimsPerWeek ?? entry.currentPeriod.swims)}/wk</span>
+                <span className="hidden sm:inline">{formatSwimsPerWeek(entry.currentPeriod.swimsPerWeek ?? entry.currentPeriod.swims)} swims/wk</span>
+              </>
             ) : (
-              <span className="inline-flex items-center gap-1">
-                <span>{entry.currentPeriod.swims} swim{entry.currentPeriod.swims === 1 ? '' : 's'}</span>
+              <span>
+                {entry.currentPeriod.swims} swim{entry.currentPeriod.swims === 1 ? '' : 's'}
                 <span
-                  className={`text-[10px] font-bold ${
+                  className={`ml-0.5 text-[9px] font-bold ${
                     entry.delta.swims > 0
                       ? 'text-emerald-700'
                       : entry.delta.swims < 0
@@ -104,7 +107,7 @@ export function ClassicPodium({
               </span>
             )}
           </div>
-          <div className="text-[10px] text-neutral-500 leading-tight">
+          <div className="text-[9px] sm:text-[10px] text-neutral-500 leading-tight truncate">
             {isChallengeView ? (
               <span>{(entry.currentPeriod.yardsPerWeek ?? entry.currentPeriod.yards).toLocaleString()} yds/wk</span>
             ) : (

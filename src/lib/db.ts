@@ -1,8 +1,15 @@
 import { createClient, Client } from '@libsql/client';
 import path from 'path';
 import fs from 'fs';
-import { Athlete, Swim, LeaderboardEntry, TimeframeOption, MetricOption } from '../types';
-import { getDateRangeForOption, getChallengeBounds, getWeeklyComparisonWindow, getCompletedChallengeWeeks } from './date-utils';
+import { Athlete, Swim, LeaderboardEntry, TimeframeOption, MetricOption } from '../types/index';
+import {
+  getDateRangeForOption,
+  getChallengeBounds,
+  getWeeklyComparisonWindow,
+  getCompletedChallengeWeeks,
+  metersToYards,
+  parseChallengeStartDate,
+} from './date-utils';
 
 declare global {
   var __libsql_client: Client | undefined;
@@ -138,6 +145,12 @@ export async function ensureDbInitialized(): Promise<void> {
       }
 
       try {
+        await client.execute(`ALTER TABLE athletes ADD COLUMN is_manual INTEGER DEFAULT 0;`);
+      } catch {
+        // column already exists
+      }
+
+      try {
         const settingsRes = await client.execute('SELECT key, value FROM app_settings');
         for (const row of settingsRes.rows) {
           if (row.key && row.value) {
@@ -146,6 +159,13 @@ export async function ensureDbInitialized(): Promise<void> {
         }
       } catch {
         // ignore
+      }
+
+      try {
+        await purgePreChallengeSwimsInternal(client);
+        await consolidateSwimsInDbInternal(client);
+      } catch (err) {
+        console.warn('Initial swims maintenance warning:', err);
       }
 
       global.__db_initialized = true;
@@ -170,6 +190,7 @@ export async function getAllAthletes(): Promise<Athlete[]> {
     token_expires_at: Number(row.token_expires_at || 0),
     last_synced_at: row.last_synced_at ? Number(row.last_synced_at) : null,
     in_club: row.in_club !== undefined && row.in_club !== null ? Number(row.in_club) : 1,
+    is_manual: Number(row.is_manual || 0),
     created_at: Number(row.created_at || Date.now()),
   }));
 }
@@ -194,6 +215,7 @@ export async function getAthleteById(id: number): Promise<Athlete | null> {
     token_expires_at: Number(row.token_expires_at || 0),
     last_synced_at: row.last_synced_at ? Number(row.last_synced_at) : null,
     in_club: row.in_club !== undefined && row.in_club !== null ? Number(row.in_club) : 1,
+    is_manual: Number(row.is_manual || 0),
     created_at: Number(row.created_at || Date.now()),
   };
 }
@@ -218,6 +240,7 @@ export async function upsertAthlete(athlete: {
   refresh_token: string;
   token_expires_at: number;
   in_club?: number;
+  is_manual?: number;
 }): Promise<void> {
   await ensureDbInitialized();
   const client = getDb();
@@ -225,10 +248,10 @@ export async function upsertAthlete(athlete: {
     sql: `
       INSERT INTO athletes (
         id, firstname, lastname, username, profile_url,
-        access_token, refresh_token, token_expires_at, in_club, created_at
+        access_token, refresh_token, token_expires_at, in_club, is_manual, created_at
       ) VALUES (
         ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         firstname = excluded.firstname,
@@ -238,7 +261,8 @@ export async function upsertAthlete(athlete: {
         access_token = excluded.access_token,
         refresh_token = excluded.refresh_token,
         token_expires_at = excluded.token_expires_at,
-        in_club = COALESCE(excluded.in_club, athletes.in_club, 1)
+        in_club = COALESCE(excluded.in_club, athletes.in_club, 1),
+        is_manual = COALESCE(excluded.is_manual, athletes.is_manual, 0)
     `,
     args: [
       athlete.id,
@@ -250,10 +274,116 @@ export async function upsertAthlete(athlete: {
       athlete.refresh_token,
       athlete.token_expires_at,
       athlete.in_club !== undefined ? athlete.in_club : 1,
+      athlete.is_manual !== undefined ? athlete.is_manual : 0,
       Date.now(),
     ],
   });
   invalidateCache();
+}
+
+export async function createManualAthlete(athlete: {
+  firstname: string;
+  lastname: string;
+  username: string | null;
+}): Promise<Athlete> {
+  await ensureDbInitialized();
+  const client = getDb();
+  const id = Date.now();
+  const now = Date.now();
+  await client.execute({
+    sql: `
+      INSERT INTO athletes (
+        id, firstname, lastname, username, profile_url,
+        access_token, refresh_token, token_expires_at, in_club, is_manual, created_at
+      ) VALUES (
+        ?, ?, ?, ?, NULL,
+        NULL, NULL, 0, 1, 1, ?
+      )
+    `,
+    args: [
+      id,
+      athlete.firstname.trim(),
+      athlete.lastname.trim(),
+      athlete.username ? athlete.username.trim() : null,
+      now,
+    ],
+  });
+  invalidateCache();
+  return {
+    id,
+    firstname: athlete.firstname.trim(),
+    lastname: athlete.lastname.trim(),
+    username: athlete.username ? athlete.username.trim() : null,
+    profile_url: null,
+    in_club: 1,
+    is_manual: 1,
+    created_at: now,
+  };
+}
+
+export async function getManualAthletes(): Promise<Athlete[]> {
+  await ensureDbInitialized();
+  const client = getDb();
+  const res = await client.execute('SELECT * FROM athletes WHERE is_manual = 1 ORDER BY firstname ASC');
+  return res.rows.map(row => ({
+    id: Number(row.id),
+    firstname: String(row.firstname || ''),
+    lastname: String(row.lastname || ''),
+    username: row.username ? String(row.username) : null,
+    profile_url: null,
+    in_club: 1,
+    is_manual: 1,
+    created_at: Number(row.created_at || Date.now()),
+  }));
+}
+
+export async function addManualSwim(params: {
+  athleteId: number;
+  date: string;
+  name?: string;
+  distanceYards: number;
+  durationSeconds: number;
+}): Promise<Swim> {
+  await ensureDbInitialized();
+
+  const athlete = await getAthleteById(params.athleteId);
+  if (!athlete) {
+    throw new Error('Athlete not found');
+  }
+
+  const name = (params.name || '').trim() || 'Swim Workout';
+  const yards = Math.max(1, Math.round(params.distanceYards));
+  const meters = Math.round(yards / 1.0936133);
+  const seconds = Math.max(1, Math.round(params.durationSeconds));
+  const avgSpeed = meters / seconds;
+
+  const dateKey = params.date.slice(0, 10);
+  const start_date_local = `${dateKey}T12:00:00Z`;
+  const start_date = new Date(`${dateKey}T12:00:00Z`).toISOString();
+  const start_timestamp = new Date(`${dateKey}T12:00:00Z`).getTime();
+  const id = Date.now();
+
+  const swim: Swim = {
+    id,
+    athlete_id: params.athleteId,
+    name,
+    distance_meters: meters,
+    distance_yards: yards,
+    moving_time: seconds,
+    elapsed_time: seconds,
+    start_date,
+    start_date_local,
+    start_timestamp,
+    average_speed: avgSpeed,
+  };
+
+  await upsertSwim(swim);
+
+  // Consolidate if the athlete already has another swim on this day
+  await consolidateSwimsInDb(params.athleteId);
+  invalidateCache();
+
+  return swim;
 }
 
 export async function updateAthleteLastSynced(id: number): Promise<void> {
@@ -359,6 +489,159 @@ export async function reconcileAthleteSwims(
   invalidateCache();
 }
 
+export function combineActivityNames(names: string[]): string {
+  const validNames = names.map(n => (n || '').trim()).filter(Boolean);
+  if (validNames.length === 0) return 'Purdue Tri Swim Workout';
+  if (validNames.length === 1) return validNames[0];
+
+  const unique = Array.from(new Set(validNames));
+  if (unique.length === 1) {
+    return `${unique[0]} (${validNames.length} sessions)`;
+  }
+  return unique.join(' + ');
+}
+
+async function consolidateSwimsInDbInternal(
+  client: Client,
+  athleteId?: number
+): Promise<{ consolidatedDaysCount: number; deletedRowsCount: number }> {
+  const query = athleteId
+    ? {
+        sql: `SELECT id, athlete_id, name, distance_meters, distance_yards, moving_time, elapsed_time, start_date, start_date_local, start_timestamp, average_speed
+              FROM swims WHERE athlete_id = ? ORDER BY athlete_id, start_timestamp ASC`,
+        args: [athleteId],
+      }
+    : {
+        sql: `SELECT id, athlete_id, name, distance_meters, distance_yards, moving_time, elapsed_time, start_date, start_date_local, start_timestamp, average_speed
+              FROM swims ORDER BY athlete_id, start_timestamp ASC`,
+        args: [],
+      };
+
+  const res = await client.execute(query);
+  interface SwimRecord {
+    id: number;
+    athlete_id: number;
+    name: string;
+    distance_meters: number;
+    distance_yards: number;
+    moving_time: number;
+    elapsed_time: number;
+    start_date: string;
+    start_date_local: string;
+    start_timestamp: number;
+    average_speed: number;
+  }
+
+  const groups = new Map<string, SwimRecord[]>();
+  for (const r of res.rows) {
+    const row: SwimRecord = {
+      id: Number(r.id),
+      athlete_id: Number(r.athlete_id),
+      name: String(r.name || ''),
+      distance_meters: Number(r.distance_meters || 0),
+      distance_yards: Number(r.distance_yards || 0),
+      moving_time: Number(r.moving_time || 0),
+      elapsed_time: Number(r.elapsed_time || 0),
+      start_date: String(r.start_date || ''),
+      start_date_local: String(r.start_date_local || ''),
+      start_timestamp: Number(r.start_timestamp || 0),
+      average_speed: Number(r.average_speed || 0),
+    };
+    const dateStr = row.start_date_local || row.start_date || '';
+    const dateKey = dateStr.slice(0, 10);
+    const groupKey = `${row.athlete_id}_${dateKey}`;
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, []);
+    }
+    groups.get(groupKey)!.push(row);
+  }
+
+  let consolidatedDaysCount = 0;
+  let deletedRowsCount = 0;
+
+  for (const groupRows of groups.values()) {
+    if (groupRows.length <= 1) continue;
+
+    consolidatedDaysCount++;
+    groupRows.sort((a, b) => Number(a.start_timestamp) - Number(b.start_timestamp));
+    const primary = groupRows[0];
+    const otherRows = groupRows.slice(1);
+    const otherIds = otherRows.map(r => Number(r.id));
+
+    const names = groupRows.map(r => String(r.name || ''));
+    const combinedName = combineActivityNames(names);
+    const totalMeters = groupRows.reduce((sum, r) => sum + Number(r.distance_meters || 0), 0);
+    const totalYards = metersToYards(totalMeters);
+    const totalMovingTime = groupRows.reduce((sum, r) => sum + Number(r.moving_time || 0), 0);
+    const totalElapsedTime = groupRows.reduce(
+      (sum, r) => sum + Number(r.elapsed_time || r.moving_time || 0),
+      0
+    );
+    const avgSpeed = totalMovingTime > 0 ? totalMeters / totalMovingTime : 0;
+
+    await client.execute({
+      sql: `UPDATE swims SET
+              name = ?,
+              distance_meters = ?,
+              distance_yards = ?,
+              moving_time = ?,
+              elapsed_time = ?,
+              average_speed = ?
+            WHERE id = ?`,
+      args: [
+        combinedName,
+        totalMeters,
+        totalYards,
+        totalMovingTime,
+        totalElapsedTime,
+        avgSpeed,
+        primary.id,
+      ],
+    });
+
+    const placeholders = otherIds.map(() => '?').join(',');
+    await client.execute({
+      sql: `DELETE FROM swims WHERE id IN (${placeholders})`,
+      args: otherIds,
+    });
+
+    deletedRowsCount += otherIds.length;
+  }
+
+  if (consolidatedDaysCount > 0) {
+    invalidateCache();
+  }
+
+  return { consolidatedDaysCount, deletedRowsCount };
+}
+
+async function purgePreChallengeSwimsInternal(client: Client): Promise<number> {
+  const challengeStartMs = parseChallengeStartDate().getTime();
+  const res = await client.execute({
+    sql: 'DELETE FROM swims WHERE start_timestamp < ?',
+    args: [challengeStartMs],
+  });
+  const affected = Number(res.rowsAffected || 0);
+  if (affected > 0) {
+    invalidateCache();
+  }
+  return affected;
+}
+
+export async function purgePreChallengeSwims(): Promise<number> {
+  await ensureDbInitialized();
+  const client = getDb();
+  return purgePreChallengeSwimsInternal(client);
+}
+
+export async function consolidateSwimsInDb(
+  athleteId?: number
+): Promise<{ consolidatedDaysCount: number; deletedRowsCount: number }> {
+  await ensureDbInitialized();
+  const client = getDb();
+  return consolidateSwimsInDbInternal(client, athleteId);
+}
+
 export async function getAthleteSwims(athleteId: number, limit = 30): Promise<Swim[]> {
   const currentVersion = getDataVersion();
   const cacheKey = `${athleteId}:${limit}`;
@@ -369,14 +652,15 @@ export async function getAthleteSwims(athleteId: number, limit = 30): Promise<Sw
 
   await ensureDbInitialized();
   const client = getDb();
+  const challengeStartMs = parseChallengeStartDate().getTime();
   const res = await client.execute({
     sql: `
       SELECT * FROM swims
-      WHERE athlete_id = ?
+      WHERE athlete_id = ? AND start_timestamp >= ?
       ORDER BY start_timestamp DESC
       LIMIT ?
     `,
-    args: [athleteId, limit],
+    args: [athleteId, challengeStartMs, limit],
   });
   const swims = res.rows.map(row => ({
     id: Number(row.id),

@@ -51,7 +51,7 @@ export function getWeekBounds(referenceDate = new Date()): {
  * Week 1: Sep 14 - Sep 20
  * Week 2 (Current week): Sep 21 - Sep 27
  */
-export const CHALLENGE_START_DATE_STR = '2026-09-14';
+export const CHALLENGE_START_DATE_STR = '2026-10-12';
 
 export function parseChallengeStartDate(dateStr = CHALLENGE_START_DATE_STR): Date {
   const [year, month, day] = dateStr.split('-').map(Number);

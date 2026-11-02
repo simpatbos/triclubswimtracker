@@ -3,7 +3,12 @@
 
 import React, { useState, useMemo } from 'react';
 import { X, Waves, Timer, Calendar, Activity, Check } from 'lucide-react';
-import { calculatePacePer100Yd, metersToYards, CHALLENGE_START_DATE_STR } from '@/lib/date-utils';
+import {
+  calculatePacePer100Yd,
+  metersToYards,
+  CHALLENGE_START_DATE_STR,
+  getClubDateParts,
+} from '@/lib/date-utils';
 
 interface LogSwimModalProps {
   isOpen: boolean;
@@ -12,13 +17,10 @@ interface LogSwimModalProps {
 }
 
 export function LogSwimModal({ isOpen, onClose, onSwimSaved }: LogSwimModalProps) {
-  // Format today's date in local YYYY-MM-DD
+  // Format today's date in Eastern Time YYYY-MM-DD
   const todayStr = useMemo(() => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    const { year, month, day } = getClubDateParts(new Date());
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   }, []);
 
   const [date, setDate] = useState(todayStr);

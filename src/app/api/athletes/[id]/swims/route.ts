@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAthleteById, getAthleteSwims, getAthleteMedalCount, getDataVersion } from '@/lib/db';
+import { getChallengeBounds } from '@/lib/date-utils';
 
 export async function GET(
   request: NextRequest,
@@ -13,7 +14,8 @@ export async function GET(
   }
 
   const version = getDataVersion();
-  const etag = `W/"ath-${version}-${athleteId}"`;
+  const { challengeWeeksCount } = getChallengeBounds();
+  const etag = `W/"ath-${version}-${athleteId}-${challengeWeeksCount}"`;
 
   if (request.headers.get('if-none-match') === etag) {
     return new NextResponse(null, {
@@ -31,7 +33,7 @@ export async function GET(
   }
 
   const [swims, medals] = await Promise.all([
-    getAthleteSwims(athleteId, 30),
+    getAthleteSwims(athleteId, 500),
     getAthleteMedalCount(athleteId),
   ]);
 

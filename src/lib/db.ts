@@ -50,6 +50,7 @@ const athleteMedalsCache = new Map<
   number,
   {
     version: number;
+    weeksCount: number;
     data: {
       gold: number;
       silver: number;
@@ -642,7 +643,7 @@ export async function consolidateSwimsInDb(
   return consolidateSwimsInDbInternal(client, athleteId);
 }
 
-export async function getAthleteSwims(athleteId: number, limit = 30): Promise<Swim[]> {
+export async function getAthleteSwims(athleteId: number, limit = 500): Promise<Swim[]> {
   const currentVersion = getDataVersion();
   const cacheKey = `${athleteId}:${limit}`;
   const cached = athleteSwimsCache.get(cacheKey);
@@ -704,15 +705,6 @@ export async function getLeaderboard(
     };
   };
 }> {
-  const currentVersion = getDataVersion();
-  const cacheKey = `${timeframe}:${sortBy}:${customRange ? `${customRange.startMs}_${customRange.endMs}_${customRange.label}` : 'standard'}`;
-  const cached = leaderboardCache.get(cacheKey);
-  if (cached && cached.version === currentVersion) {
-    return cached.data;
-  }
-
-  await ensureDbInitialized();
-  const client = getDb();
   const dateRanges = getDateRangeForOption(timeframe);
   const current = customRange ?? dateRanges.current;
   const comparison = customRange
@@ -726,6 +718,16 @@ export async function getLeaderboard(
 
   const { challengeWeeksCount } = getChallengeBounds();
   const comparisonWindow = getWeeklyComparisonWindow();
+
+  const currentVersion = getDataVersion();
+  const cacheKey = `${timeframe}:${sortBy}:${current.startMs}_${current.endMs}_${current.label}:${comparisonWindow.currentDayIndex}:${challengeWeeksCount}`;
+  const cached = leaderboardCache.get(cacheKey);
+  if (cached && cached.version === currentVersion) {
+    return cached.data;
+  }
+
+  await ensureDbInitialized();
+  const client = getDb();
 
   const athletes = await getAllAthletes();
 
@@ -1013,13 +1015,13 @@ export async function getAthleteMedalCount(athleteId: number): Promise<{
   total: number;
   weeklyMedals: Record<number, 'gold' | 'silver' | 'bronze'>;
 }> {
+  const completedWeeks = getCompletedChallengeWeeks();
   const currentVersion = getDataVersion();
   const cached = athleteMedalsCache.get(athleteId);
-  if (cached && cached.version === currentVersion) {
+  if (cached && cached.version === currentVersion && cached.weeksCount === completedWeeks.length) {
     return cached.data;
   }
 
-  const completedWeeks = getCompletedChallengeWeeks();
   let gold = 0;
   let silver = 0;
   let bronze = 0;
@@ -1068,6 +1070,10 @@ export async function getAthleteMedalCount(athleteId: number): Promise<{
     weeklyMedals,
   };
 
-  athleteMedalsCache.set(athleteId, { version: currentVersion, data: result });
+  athleteMedalsCache.set(athleteId, {
+    version: currentVersion,
+    weeksCount: completedWeeks.length,
+    data: result,
+  });
   return result;
 }

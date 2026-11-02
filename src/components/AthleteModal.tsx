@@ -20,6 +20,7 @@ import {
   getWeekBounds,
   getChallengeWeeklyBreakdown,
   formatSwimsPerWeek,
+  formatClubDateShort,
 } from '@/lib/date-utils';
 
 interface AthleteModalProps {
@@ -333,8 +334,7 @@ export function AthleteModal({
                       <span>This Week&apos;s Swims ({thisWeekSwims.length})</span>
                     </h4>
                     <span className="text-[10px] sm:text-[11px] text-neutral-500 font-mono">
-                      {thisWeekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} -{' '}
-                      {thisWeekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {formatClubDateShort(thisWeekStart)} - {formatClubDateShort(thisWeekEnd)}
                     </span>
                   </div>
 

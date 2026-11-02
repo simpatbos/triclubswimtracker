@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLeaderboard, getDataVersion } from '@/lib/db';
+import { getDateRangeForOption, getWeeklyComparisonWindow } from '@/lib/date-utils';
 import { syncAllAthletes } from '@/lib/strava';
 import { TimeframeOption, MetricOption } from '@/types';
 
@@ -46,7 +47,9 @@ export async function GET(request: NextRequest) {
     }
 
     const version = getDataVersion();
-    const etag = `W/"lb-${version}-${safeTimeframe}-${safeSort}-${startMsParam || ''}-${endMsParam || ''}"`;
+    const activeRange = customRange ?? getDateRangeForOption(safeTimeframe).current;
+    const dayIdx = getWeeklyComparisonWindow().currentDayIndex;
+    const etag = `W/"lb-${version}-${safeTimeframe}-${safeSort}-${activeRange.startMs}-${activeRange.endMs}-${dayIdx}"`;
 
     if (request.headers.get('if-none-match') === etag) {
       return new NextResponse(null, {

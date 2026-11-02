@@ -1,13 +1,96 @@
 /**
  * Date and time range utilities for Swim Tracker
- * Standard swim training week runs Monday 00:00 to Sunday 23:59:59
+ * Standard swim training week runs Monday 00:00 to Sunday 23:59:59 Eastern Time
  */
+
+export const CLUB_TIMEZONE = 'America/Indiana/Indianapolis';
 
 export interface DateRange {
   startMs: number;
   endMs: number;
   label: string;
   sublabel: string;
+}
+
+function getTimezoneOffsetMs(utcMs: number, timeZone = CLUB_TIMEZONE): number {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  const parts = formatter.formatToParts(new Date(utcMs));
+  const y = Number(parts.find(p => p.type === 'year')!.value);
+  const m = Number(parts.find(p => p.type === 'month')!.value);
+  const d = Number(parts.find(p => p.type === 'day')!.value);
+  const h = Number(parts.find(p => p.type === 'hour')!.value);
+  const min = Number(parts.find(p => p.type === 'minute')!.value);
+  const s = Number(parts.find(p => p.type === 'second')!.value);
+  const ms = ((utcMs % 1000) + 1000) % 1000;
+  const wallAsUtc = Date.UTC(y, m - 1, d, h, min, s, ms);
+  return wallAsUtc - utcMs;
+}
+
+export function getClubZonedDate(
+  year: number,
+  month: number,
+  day: number,
+  hour = 0,
+  minute = 0,
+  second = 0,
+  ms = 0
+): Date {
+  const targetWallAsUtc = Date.UTC(year, month - 1, day, hour, minute, second, ms);
+  const offset1 = getTimezoneOffsetMs(targetWallAsUtc, CLUB_TIMEZONE);
+  const guess1 = targetWallAsUtc - offset1;
+  const offset2 = getTimezoneOffsetMs(guess1, CLUB_TIMEZONE);
+  return new Date(targetWallAsUtc - offset2);
+}
+
+export function getClubDateParts(date: Date = new Date()): {
+  year: number;
+  month: number;
+  day: number;
+  dayOfWeek: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+} {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: CLUB_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(date);
+  const year = Number(parts.find(p => p.type === 'year')!.value);
+  const month = Number(parts.find(p => p.type === 'month')!.value);
+  const day = Number(parts.find(p => p.type === 'day')!.value);
+  const dayOfWeek = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return { year, month, day, dayOfWeek };
+}
+
+function addCalendarDays(
+  year: number,
+  month: number,
+  day: number,
+  deltaDays: number
+): { year: number; month: number; day: number } {
+  const d = new Date(Date.UTC(year, month - 1, day + deltaDays));
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate(),
+  };
+}
+
+export function formatClubDateShort(d: Date): string {
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: CLUB_TIMEZONE,
+  });
 }
 
 export function getWeekBounds(referenceDate = new Date()): {
@@ -17,26 +100,21 @@ export function getWeekBounds(referenceDate = new Date()): {
   lastWeekEnd: Date;
 } {
   const now = new Date(referenceDate);
-  const currentDay = now.getDay(); // 0 is Sunday, 1 is Monday...
-  
-  // Calculate distance back to current week's Monday
-  // In JS: Sun=0 -> diff = -6; Mon=1 -> diff = 0; Tue=2 -> diff = -1 ...
-  const daysToMonday = currentDay === 0 ? -6 : 1 - currentDay;
-  
-  const thisWeekStart = new Date(now);
-  thisWeekStart.setDate(now.getDate() + daysToMonday);
-  thisWeekStart.setHours(0, 0, 0, 0);
+  const { year, month, day, dayOfWeek } = getClubDateParts(now);
 
-  const thisWeekEnd = new Date(thisWeekStart);
-  thisWeekEnd.setDate(thisWeekStart.getDate() + 6);
-  thisWeekEnd.setHours(23, 59, 59, 999);
+  // Calculate distance back to current week's Monday in Eastern Time
+  // Sun=0 -> diff = -6; Mon=1 -> diff = 0; Tue=2 -> diff = -1 ...
+  const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
 
-  const lastWeekStart = new Date(thisWeekStart);
-  lastWeekStart.setDate(thisWeekStart.getDate() - 7);
-  lastWeekStart.setHours(0, 0, 0, 0);
+  const thisMon = addCalendarDays(year, month, day, daysToMonday);
+  const thisSun = addCalendarDays(thisMon.year, thisMon.month, thisMon.day, 6);
+  const lastMon = addCalendarDays(thisMon.year, thisMon.month, thisMon.day, -7);
+  const lastSun = addCalendarDays(thisMon.year, thisMon.month, thisMon.day, -1);
 
-  const lastWeekEnd = new Date(thisWeekStart);
-  lastWeekEnd.setMilliseconds(-1); // End of previous week's Sunday 23:59:59.999
+  const thisWeekStart = getClubZonedDate(thisMon.year, thisMon.month, thisMon.day, 0, 0, 0, 0);
+  const thisWeekEnd = getClubZonedDate(thisSun.year, thisSun.month, thisSun.day, 23, 59, 59, 999);
+  const lastWeekStart = getClubZonedDate(lastMon.year, lastMon.month, lastMon.day, 0, 0, 0, 0);
+  const lastWeekEnd = getClubZonedDate(lastSun.year, lastSun.month, lastSun.day, 23, 59, 59, 999);
 
   return {
     thisWeekStart,
@@ -47,15 +125,15 @@ export function getWeekBounds(referenceDate = new Date()): {
 }
 
 /**
- * Challenge kickoff Monday: September 14, 2026 (00:00:00 local time)
+ * Challenge kickoff Monday: September 14, 2026 (00:00:00 Eastern time)
  * Week 1: Sep 14 - Sep 20
- * Week 2 (Current week): Sep 21 - Sep 27
+ * Week 2: Sep 21 - Sep 27
  */
 export const CHALLENGE_START_DATE_STR = '2026-10-12';
 
 export function parseChallengeStartDate(dateStr = CHALLENGE_START_DATE_STR): Date {
   const [year, month, day] = dateStr.split('-').map(Number);
-  return new Date(year, month - 1, day, 0, 0, 0, 0);
+  return getClubZonedDate(year, month, day, 0, 0, 0, 0);
 }
 
 export function getChallengeBounds(referenceDate = new Date()): {
@@ -107,24 +185,52 @@ export function getWeeklyComparisonWindow(referenceDate = new Date()): WeeklyCom
   const { thisWeekStart, lastWeekStart } = getWeekBounds(referenceDate);
   const now = new Date(referenceDate);
 
-  const currentDay = now.getDay();
-  // In JS: Sun=0 -> 7, Mon=1 -> 1, ..., Sat=6 -> 6
-  const currentDayIndex = currentDay === 0 ? 7 : currentDay;
+  const { year, month, day, dayOfWeek } = getClubDateParts(now);
+  // Sun=0 -> 7, Mon=1 -> 1, ..., Sat=6 -> 6
+  const currentDayIndex = dayOfWeek === 0 ? 7 : dayOfWeek;
+  const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const lastMon = addCalendarDays(year, month, day, daysToMonday - 7);
 
-  const msPerDay = 24 * 60 * 60 * 1000;
   const completedDaysCount = currentDayIndex - 1;
 
   const thisWeekStartMs = thisWeekStart.getTime();
   const thisWeekNowMs = now.getTime();
 
   const lastWeekStartMs = lastWeekStart.getTime();
-  const lastWeekCompletedDaysEndMs =
-    completedDaysCount > 0
-      ? lastWeekStartMs + completedDaysCount * msPerDay - 1
-      : lastWeekStartMs - 1;
+  let lastWeekCompletedDaysEndMs = lastWeekStartMs - 1;
+  if (completedDaysCount > 0) {
+    const completedEndDay = addCalendarDays(
+      lastMon.year,
+      lastMon.month,
+      lastMon.day,
+      completedDaysCount - 1
+    );
+    lastWeekCompletedDaysEndMs = getClubZonedDate(
+      completedEndDay.year,
+      completedEndDay.month,
+      completedEndDay.day,
+      23,
+      59,
+      59,
+      999
+    ).getTime();
+  }
 
-  const lastWeekThroughTodayEndMs =
-    lastWeekStartMs + currentDayIndex * msPerDay - 1;
+  const throughTodayDay = addCalendarDays(
+    lastMon.year,
+    lastMon.month,
+    lastMon.day,
+    currentDayIndex - 1
+  );
+  const lastWeekThroughTodayEndMs = getClubZonedDate(
+    throughTodayDay.year,
+    throughTodayDay.month,
+    throughTodayDay.day,
+    23,
+    59,
+    59,
+    999
+  ).getTime();
 
   return {
     currentDayIndex,
@@ -148,25 +254,26 @@ export interface CompletedWeekConfig {
  * Returns list of completed challenge weeks (for Previous Weeks modal archive)
  */
 export function getCompletedChallengeWeeks(referenceDate = new Date()): CompletedWeekConfig[] {
-  const { challengeEnd, challengeWeeksCount } = getChallengeBounds(referenceDate);
-  const formatDate = (d: Date) =>
-    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const { challengeWeeksCount } = getChallengeBounds(referenceDate);
 
   if (challengeWeeksCount === 0) return [];
 
+  const [kickoffYear, kickoffMonth, kickoffDay] = CHALLENGE_START_DATE_STR.split('-').map(Number);
+
   const weeks: CompletedWeekConfig[] = [];
   for (let w = challengeWeeksCount; w >= 1; w--) {
-    const weeksAgo = challengeWeeksCount - w;
-    const end = new Date(challengeEnd.getTime() - weeksAgo * 7 * 24 * 60 * 60 * 1000);
-    const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000 + 1);
-    start.setHours(0, 0, 0, 0);
+    const startCal = addCalendarDays(kickoffYear, kickoffMonth, kickoffDay, (w - 1) * 7);
+    const endCal = addCalendarDays(kickoffYear, kickoffMonth, kickoffDay, w * 7 - 1);
+
+    const start = getClubZonedDate(startCal.year, startCal.month, startCal.day, 0, 0, 0, 0);
+    const end = getClubZonedDate(endCal.year, endCal.month, endCal.day, 23, 59, 59, 999);
 
     const label = `Week ${w}`;
 
     weeks.push({
       weekNumber: w,
       label,
-      dateRange: `${formatDate(start)} - ${formatDate(end)}`,
+      dateRange: `${formatClubDateShort(start)} - ${formatClubDateShort(end)}`,
       startMs: start.getTime(),
       endMs: end.getTime(),
     });
@@ -185,8 +292,7 @@ export function getDateRangeForOption(
   const { thisWeekStart, thisWeekEnd, lastWeekStart, lastWeekEnd } = getWeekBounds(referenceDate);
   const { challengeStart, challengeEnd, challengeWeeksCount } = getChallengeBounds(referenceDate);
 
-  const formatDate = (d: Date) =>
-    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const formatDate = formatClubDateShort;
 
   switch (option) {
     case 'this_week':
@@ -324,39 +430,9 @@ export function getChallengeWeeklyBreakdown(
   swims: { distance_yards: number; moving_time: number; start_timestamp: number }[],
   referenceDate = new Date()
 ): WeekSummary[] {
-  const { challengeStart, challengeEnd, challengeWeeksCount } = getChallengeBounds(referenceDate);
-  const { lastWeekEnd } = getWeekBounds(referenceDate);
-
-  const formatDate = (d: Date) =>
-    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-  if (challengeWeeksCount === 0 || lastWeekEnd.getTime() < challengeStart.getTime()) {
+  const weeksConfig = getCompletedChallengeWeeks(referenceDate);
+  if (weeksConfig.length === 0) {
     return [];
-  }
-
-  const weeksConfig: {
-    weekNumber: number;
-    label: string;
-    dateRange: string;
-    startMs: number;
-    endMs: number;
-  }[] = [];
-
-  for (let w = challengeWeeksCount; w >= 1; w--) {
-    const weeksAgo = challengeWeeksCount - w;
-    const weekEnd = new Date(challengeEnd.getTime() - weeksAgo * 7 * 24 * 60 * 60 * 1000);
-    const weekStart = new Date(weekEnd.getTime() - 7 * 24 * 60 * 60 * 1000 + 1);
-    weekStart.setHours(0, 0, 0, 0);
-
-    const label = `Week ${w}`;
-
-    weeksConfig.push({
-      weekNumber: w,
-      label,
-      dateRange: `${formatDate(weekStart)} - ${formatDate(weekEnd)}`,
-      startMs: weekStart.getTime(),
-      endMs: weekEnd.getTime(),
-    });
   }
 
   return weeksConfig.map(wc => {

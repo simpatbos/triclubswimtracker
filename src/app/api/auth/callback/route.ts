@@ -1,5 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { exchangeStravaCode, syncAthleteSwims } from '@/lib/strava';
+import { NextRequest, NextResponse, after } from 'next/server';
+import {
+  exchangeStravaCode,
+  syncAthleteSwims,
+  ensureWebhookSubscription,
+  pruneStaleAthletes,
+} from '@/lib/strava';
 import { upsertAthlete } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
@@ -33,12 +38,22 @@ export async function GET(request: NextRequest) {
       in_club: 1,
     });
 
-    // Run initial swim sync in the background or await
+    // Run initial one-time swim sync for the newly authorized athlete
     try {
       await syncAthleteSwims(athlete.id);
     } catch (syncErr) {
       console.warn('Initial sync warning:', syncErr);
     }
+
+    // Ensure Strava webhook subscription is active and prune any stale/deauthorized athletes in background
+    after(async () => {
+      try {
+        await ensureWebhookSubscription(`${origin}/api/webhooks/strava`);
+        await pruneStaleAthletes();
+      } catch (bgErr) {
+        console.warn('Post-auth maintenance warning:', bgErr);
+      }
+    });
 
     const response = NextResponse.redirect(`${origin}/?auth_success=1&athlete_id=${athlete.id}`);
 

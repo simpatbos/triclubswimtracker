@@ -407,6 +407,57 @@ export async function deleteAthlete(id: number): Promise<void> {
   invalidateCache();
 }
 
+export async function clearAthleteTokens(id: number): Promise<void> {
+  await ensureDbInitialized();
+  const client = getDb();
+  await client.execute({
+    sql: 'UPDATE athletes SET access_token = NULL, refresh_token = NULL, token_expires_at = 0 WHERE id = ?',
+    args: [id],
+  });
+  invalidateCache();
+}
+
+export async function getSwimById(swimId: number): Promise<Swim | null> {
+  await ensureDbInitialized();
+  const client = getDb();
+  const res = await client.execute({
+    sql: 'SELECT * FROM swims WHERE id = ?',
+    args: [swimId],
+  });
+  if (res.rows.length === 0) return null;
+  const row = res.rows[0];
+  return {
+    id: Number(row.id),
+    athlete_id: Number(row.athlete_id),
+    name: String(row.name || ''),
+    distance_meters: Number(row.distance_meters || 0),
+    distance_yards: Number(row.distance_yards || 0),
+    moving_time: Number(row.moving_time || 0),
+    elapsed_time: Number(row.elapsed_time || 0),
+    start_date: String(row.start_date || ''),
+    start_date_local: String(row.start_date_local || ''),
+    start_timestamp: Number(row.start_timestamp || 0),
+    average_speed: Number(row.average_speed || 0),
+  };
+}
+
+export async function getAthleteSwimSummary(athleteId: number): Promise<{
+  swimCount: number;
+  lastSwimTimestamp: number | null;
+}> {
+  await ensureDbInitialized();
+  const client = getDb();
+  const res = await client.execute({
+    sql: 'SELECT COUNT(*) as swimCount, MAX(start_timestamp) as lastSwimTimestamp FROM swims WHERE athlete_id = ?',
+    args: [athleteId],
+  });
+  const row = res.rows[0];
+  return {
+    swimCount: Number(row?.swimCount || 0),
+    lastSwimTimestamp: row?.lastSwimTimestamp ? Number(row.lastSwimTimestamp) : null,
+  };
+}
+
 export async function upsertSwim(swim: {
   id: number;
   athlete_id: number;

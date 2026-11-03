@@ -101,17 +101,13 @@ function SwimTracker() {
   };
 
   // Initial mount load: fetches auth session and initial leaderboard view ONCE
+  // Activity updates are received automatically via Strava Webhooks (/api/webhooks/strava)
   useEffect(() => {
     let active = true;
 
     async function initialize() {
       try {
-        // 1. Update the database every time someone loads the page
-        await fetch('/api/sync', { method: 'POST' }).catch(err => {
-          console.warn('Page load database sync notice:', err);
-        });
-
-        // 2. Fetch current athlete session and fresh leaderboard
+        // Fetch current athlete session and leaderboard from database
         await Promise.all([
           fetch('/api/auth/me')
             .then(res => res.json())

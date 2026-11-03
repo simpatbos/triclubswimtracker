@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getAthleteById, deleteAthlete } from '@/lib/db';
-import { deauthorizeStrava } from '@/lib/strava';
+import { getAthleteById } from '@/lib/db';
+import { revokeAndDeleteAthlete } from '@/lib/strava';
 
 export async function DELETE() {
   try {
@@ -16,12 +16,9 @@ export async function DELETE() {
     const athlete = await getAthleteById(athleteId);
 
     if (athlete) {
-      if (athlete.access_token) {
-        // Attempt to deauthorize token on Strava
-        await deauthorizeStrava(athlete.access_token);
-      }
-      // Delete from database (athlete record and all their swims)
-      await deleteAthlete(athleteId);
+      // Refreshes token if needed, revokes access on Strava via /oauth/deauthorize
+      // (decrementing connected athlete count), and deletes athlete + swims from DB
+      await revokeAndDeleteAthlete(athleteId);
     }
 
     const response = NextResponse.json({

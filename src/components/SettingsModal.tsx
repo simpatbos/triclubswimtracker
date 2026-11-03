@@ -42,6 +42,11 @@ export function SettingsModal({
 
       const res = await fetch('/api/sync', { method: 'POST' });
       const data = await res.json();
+      if (res.status === 401 && data.deauthorized) {
+        await onAccountDeleted();
+        onClose();
+        return;
+      }
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Failed to refresh data from Strava');
       }
@@ -160,13 +165,13 @@ export function SettingsModal({
                   </>
                 ) : (
                   <>
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Strava Sync Active
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Strava Webhook Sync Active
                   </>
                 )}
               </span>
               {athlete.is_manual
                 ? 'You manually input your swim yardage and workouts. Your stats and standings remain active on the leaderboard.'
-                : 'The server continuously tracks your swim uploads and keeps your standing on the leaderboard, even when you are logged out.'}
+                : 'Strava webhooks automatically push your swim uploads, edits, and deletions to the leaderboard in real time.'}
             </div>
           </div>
 

@@ -3,8 +3,9 @@
 
 import React from 'react';
 import Image from 'next/image';
+import { Check } from 'lucide-react';
 import { LeaderboardEntry } from '@/types';
-import { formatSwimsPerWeek } from '@/lib/date-utils';
+import { WEEKLY_SWIM_GOAL } from '@/lib/date-utils';
 
 interface ClassicLeaderboardListProps {
   entries: LeaderboardEntry[];
@@ -31,6 +32,14 @@ export function ClassicLeaderboardList({
           const isCurrentUser = Boolean(
             currentAthleteId && entry.athlete.id === currentAthleteId
           );
+          const completedWeeks = entry.currentPeriod.completedWeeks ?? 0;
+          const totalChallengeWeeks = entry.currentPeriod.totalChallengeWeeks ?? 0;
+          const isCompleted = isChallengeView
+            ? totalChallengeWeeks > 0 && completedWeeks >= totalChallengeWeeks
+            : Boolean(entry.currentPeriod.weekCompleted ?? entry.currentPeriod.swims >= WEEKLY_SWIM_GOAL);
+          const completedTitle = isChallengeView
+            ? `Completed all ${totalChallengeWeeks} challenge ${totalChallengeWeeks === 1 ? 'week' : 'weeks'}`
+            : `Week completed (${entry.currentPeriod.swims} swims)`;
 
           return (
             <div
@@ -54,26 +63,39 @@ export function ClassicLeaderboardList({
                 </span>
 
                 {/* PFP */}
-                <div
-                  className={`relative w-10 h-10 rounded-full overflow-hidden bg-neutral-200 border flex-shrink-0 ${
-                    isCurrentUser
-                      ? 'border-[#cfb991] ring-1 ring-[#cfb991]'
-                      : 'border-neutral-300'
-                  }`}
-                >
-                  {entry.athlete.profile_url ? (
-                    <Image
-                      src={entry.athlete.profile_url}
-                      alt={`${entry.athlete.firstname} ${entry.athlete.lastname}`}
-                      fill
-                      sizes="40px"
-                      className="object-cover"
-                      unoptimized
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center font-bold text-xs text-neutral-700">
-                      {entry.athlete.firstname[0]}
-                    </div>
+                <div className="relative flex-shrink-0">
+                  <div
+                    className={`relative w-10 h-10 rounded-full overflow-hidden bg-neutral-200 border ${
+                      isCurrentUser
+                        ? 'border-[#cfb991] ring-1 ring-[#cfb991]'
+                        : isCompleted
+                        ? 'border-emerald-500 ring-1 ring-emerald-500/25'
+                        : 'border-neutral-300'
+                    }`}
+                  >
+                    {entry.athlete.profile_url ? (
+                      <Image
+                        src={entry.athlete.profile_url}
+                        alt={`${entry.athlete.firstname} ${entry.athlete.lastname}`}
+                        fill
+                        sizes="40px"
+                        className="object-cover"
+                        unoptimized
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center font-bold text-xs text-neutral-700">
+                        {entry.athlete.firstname[0]}
+                      </div>
+                    )}
+                  </div>
+                  {isCompleted && (
+                    <span
+                      title={completedTitle}
+                      aria-label={completedTitle}
+                      className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-600 text-white border-2 border-white flex items-center justify-center shadow-xs"
+                    >
+                      <Check className="w-2.5 h-2.5 stroke-[3.5]" />
+                    </span>
                   )}
                 </div>
 
@@ -92,7 +114,7 @@ export function ClassicLeaderboardList({
                   <div className="text-xs text-neutral-600 leading-snug">
                     <span className="font-bold text-neutral-900">
                       {isChallengeView
-                        ? `${formatSwimsPerWeek(entry.currentPeriod.swimsPerWeek ?? entry.currentPeriod.swims)} swims/wk`
+                        ? `${completedWeeks} ${completedWeeks === 1 ? 'week' : 'weeks'} completed`
                         : `${entry.currentPeriod.swims} swim${entry.currentPeriod.swims === 1 ? '' : 's'}`}
                     </span>
                     {!isChallengeView && (

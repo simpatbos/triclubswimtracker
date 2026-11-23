@@ -35,6 +35,9 @@ export interface LeaderboardPeriodStats {
   longestSwimYards: number;
   swimsPerWeek?: number;
   yardsPerWeek?: number;
+  weekCompleted?: boolean;
+  completedWeeks?: number;
+  totalChallengeWeeks?: number;
 }
 
 export interface LeaderboardEntry {

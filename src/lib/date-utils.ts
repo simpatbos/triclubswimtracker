@@ -4,6 +4,7 @@
  */
 
 export const CLUB_TIMEZONE = 'America/Indiana/Indianapolis';
+export const WEEKLY_SWIM_GOAL = 4;
 
 export interface DateRange {
   startMs: number;
@@ -424,6 +425,7 @@ export interface WeekSummary {
   totalSwims: number;
   totalSeconds: number;
   avgPace: string;
+  completed: boolean;
 }
 
 export function getChallengeWeeklyBreakdown(
@@ -450,6 +452,7 @@ export function getChallengeWeeklyBreakdown(
       totalSwims,
       totalSeconds,
       avgPace,
+      completed: totalSwims >= WEEKLY_SWIM_GOAL,
     };
   });
 }

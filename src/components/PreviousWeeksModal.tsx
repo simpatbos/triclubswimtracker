@@ -2,9 +2,9 @@
 'use client';
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { X, Trophy, History, Calendar, ChevronDown, RefreshCw, Users } from 'lucide-react';
+import { X, Trophy, History, Calendar, ChevronDown, RefreshCw, Users, Check } from 'lucide-react';
 import { LeaderboardEntry } from '@/types';
-import { CompletedWeekConfig, formatDuration, calculatePacePer100Yd } from '@/lib/date-utils';
+import { CompletedWeekConfig, formatDuration, calculatePacePer100Yd, WEEKLY_SWIM_GOAL } from '@/lib/date-utils';
 import { ClassicPodium } from './ClassicPodium';
 import { ClassicLeaderboardList } from './ClassicLeaderboardList';
 
@@ -248,15 +248,26 @@ export function PreviousWeeksModal({
                   : null;
                 if (!currentUserEntry) return null;
 
+                const isWeekCompleted = Boolean(
+                  currentUserEntry.currentPeriod.weekCompleted ??
+                    currentUserEntry.currentPeriod.swims >= WEEKLY_SWIM_GOAL
+                );
+
                 return (
                   <div className="bg-amber-50/70 border border-[#cfb991] rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="px-2 py-0.5 text-[9px] font-bold bg-[#cfb991] text-neutral-900 rounded font-mono uppercase tracking-wider">
                         Your Stats
                       </span>
                       <span className="text-xs font-bold text-neutral-900">
                         Rank #{currentUserEntry.rank} of {entries.length}
                       </span>
+                      {isWeekCompleted && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-300 text-emerald-800 text-[9px] font-bold">
+                          <Check className="w-2.5 h-2.5 stroke-[3]" />
+                          <span>Completed</span>
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2.5 text-xs font-mono">

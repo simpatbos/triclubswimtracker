@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     const version = getDataVersion();
     const activeRange = customRange ?? getDateRangeForOption(safeTimeframe).current;
     const dayIdx = getWeeklyComparisonWindow().currentDayIndex;
-    const etag = `W/"lb-${version}-${safeTimeframe}-${safeSort}-${activeRange.startMs}-${activeRange.endMs}-${dayIdx}"`;
+    const etag = `W/"lb2-${version}-${safeTimeframe}-${safeSort}-${activeRange.startMs}-${activeRange.endMs}-${dayIdx}"`;
 
     if (request.headers.get('if-none-match') === etag) {
       return new NextResponse(null, {

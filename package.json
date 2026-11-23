@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "seed:dev": "node scripts/seed-dev.mjs",
+    "seed:clear": "node scripts/seed-dev.mjs --clear"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

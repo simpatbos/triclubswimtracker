@@ -82,8 +82,8 @@ export function InfoModal({ isOpen, onClose }: InfoModalProps) {
                 2
               </div>
               <div>
-                <span className="font-bold text-neutral-900 block">Weekly Podiums</span>
-                <span>The leaderboard ranks members by <strong>swims / week</strong> and yardage. The top 3 claim the gold, silver, and black steps.</span>
+                <span className="font-bold text-neutral-900 block">Weekly Podiums &amp; Scoring</span>
+                <span>Log <strong>4 swims</strong> in a week to complete the week and earn a check mark on your profile. Before 4 swims, swim count ranks first; once completed, <strong>total yards</strong> is the tiebreaker. Challenge standings rank by total completed weeks, then yards / week.</span>
               </div>
             </div>
 

@@ -9,6 +9,7 @@ import {
   getCompletedChallengeWeeks,
   metersToYards,
   parseChallengeStartDate,
+  WEEKLY_SWIM_GOAL,
 } from './date-utils';
 
 declare global {
@@ -756,7 +757,8 @@ export async function getLeaderboard(
     };
   };
 }> {
-  const dateRanges = getDateRangeForOption(timeframe);
+  const now = new Date();
+  const dateRanges = getDateRangeForOption(timeframe, now);
   const current = customRange ?? dateRanges.current;
   const comparison = customRange
     ? {
@@ -767,8 +769,8 @@ export async function getLeaderboard(
       }
     : dateRanges.comparison;
 
-  const { challengeWeeksCount } = getChallengeBounds();
-  const comparisonWindow = getWeeklyComparisonWindow();
+  const { challengeWeeksCount } = getChallengeBounds(now);
+  const comparisonWindow = getWeeklyComparisonWindow(now);
 
   const currentVersion = getDataVersion();
   const cacheKey = `${timeframe}:${sortBy}:${current.startMs}_${current.endMs}_${current.label}:${comparisonWindow.currentDayIndex}:${challengeWeeksCount}`;
@@ -779,6 +781,46 @@ export async function getLeaderboard(
 
   await ensureDbInitialized();
   const client = getDb();
+
+  const isChallengeTimeframe = (timeframe === 'challenge' || timeframe === 'all_time') && !customRange;
+  const completedChallengeWeeks = isChallengeTimeframe ? getCompletedChallengeWeeks(now) : [];
+  const athleteCompletedWeeksMap = new Map<number, number>();
+
+  if (isChallengeTimeframe && completedChallengeWeeks.length > 0) {
+    const challengeSwimsRes = await client.execute({
+      sql: `
+        SELECT athlete_id, start_timestamp
+        FROM swims
+        WHERE start_timestamp >= ? AND start_timestamp <= ?
+      `,
+      args: [current.startMs, current.endMs],
+    });
+
+    const countsByAthleteWeek = new Map<number, Map<number, number>>();
+    for (const row of challengeSwimsRes.rows) {
+      const aid = Number(row.athlete_id);
+      const ts = Number(row.start_timestamp);
+      const week = completedChallengeWeeks.find(w => ts >= w.startMs && ts <= w.endMs);
+      if (!week) continue;
+
+      let weekMap = countsByAthleteWeek.get(aid);
+      if (!weekMap) {
+        weekMap = new Map();
+        countsByAthleteWeek.set(aid, weekMap);
+      }
+      weekMap.set(week.weekNumber, (weekMap.get(week.weekNumber) || 0) + 1);
+    }
+
+    for (const [aid, weekMap] of countsByAthleteWeek.entries()) {
+      let completedCount = 0;
+      for (const count of weekMap.values()) {
+        if (count >= WEEKLY_SWIM_GOAL) {
+          completedCount++;
+        }
+      }
+      athleteCompletedWeeksMap.set(aid, completedCount);
+    }
+  }
 
   const athletes = await getAllAthletes();
 
@@ -894,12 +936,20 @@ export async function getLeaderboard(
           ? Math.round(((currentStats.yards - prevStats.yards) / prevStats.yards) * 100)
           : null;
 
-      const challengeWeeks =
-        (timeframe === 'challenge' || timeframe === 'all_time') && !customRange
-          ? Math.max(1, challengeWeeksCount)
-          : 1;
+      const challengeWeeks = isChallengeTimeframe
+        ? Math.max(1, challengeWeeksCount)
+        : 1;
       const swimsPerWeek = currentStats.swims / challengeWeeks;
       const yardsPerWeek = Math.round(currentStats.yards / challengeWeeks);
+      const completedWeeks = isChallengeTimeframe
+        ? athleteCompletedWeeksMap.get(athlete.id) || 0
+        : undefined;
+      const totalChallengeWeeks = isChallengeTimeframe
+        ? completedChallengeWeeks.length
+        : undefined;
+      const weekCompleted = isChallengeTimeframe
+        ? completedChallengeWeeks.length > 0 && (completedWeeks ?? 0) >= completedChallengeWeeks.length
+        : currentStats.swims >= WEEKLY_SWIM_GOAL;
 
       return {
         rank: 0,
@@ -919,6 +969,9 @@ export async function getLeaderboard(
           longestSwimYards: Math.round(currentStats.longestSwimYards),
           swimsPerWeek: Math.round(swimsPerWeek * 10) / 10,
           yardsPerWeek,
+          weekCompleted,
+          completedWeeks,
+          totalChallengeWeeks,
         },
         previousPeriod: {
           swims: prevStats.swims,
@@ -943,17 +996,42 @@ export async function getLeaderboard(
     clubTotalTime += entry.currentPeriod.movingTimeSeconds;
   }
 
-  // Sort by swims (default) or yards
+  // Sort by weekly completion / challenge completed weeks (default) or yards
   entries.sort((a, b) => {
     if (sortBy === 'yards') {
       if (b.currentPeriod.yards !== a.currentPeriod.yards) {
         return b.currentPeriod.yards - a.currentPeriod.yards;
       }
-      return b.currentPeriod.swims - a.currentPeriod.swims;
+      if (isChallengeTimeframe) {
+        return (b.currentPeriod.completedWeeks ?? 0) - (a.currentPeriod.completedWeeks ?? 0);
+      }
+      return (
+        Math.min(b.currentPeriod.swims, WEEKLY_SWIM_GOAL) -
+        Math.min(a.currentPeriod.swims, WEEKLY_SWIM_GOAL)
+      );
     }
-    // Default: swims
-    if (b.currentPeriod.swims !== a.currentPeriod.swims) {
-      return b.currentPeriod.swims - a.currentPeriod.swims;
+
+    if (isChallengeTimeframe) {
+      // Challenge Leaderboard: rank by total completed weeks (4+ swims), tiebreaker yards/week
+      const aCompleted = a.currentPeriod.completedWeeks ?? 0;
+      const bCompleted = b.currentPeriod.completedWeeks ?? 0;
+      if (bCompleted !== aCompleted) {
+        return bCompleted - aCompleted;
+      }
+      const aYdsPerWk = a.currentPeriod.yardsPerWeek ?? a.currentPeriod.yards;
+      const bYdsPerWk = b.currentPeriod.yardsPerWeek ?? b.currentPeriod.yards;
+      if (bYdsPerWk !== aYdsPerWk) {
+        return bYdsPerWk - aYdsPerWk;
+      }
+      return b.currentPeriod.yards - a.currentPeriod.yards;
+    }
+
+    // Weekly Leaderboard: swims up to WEEKLY_SWIM_GOAL (4) is #1 factor;
+    // once 4 swims are reached, the week is completed and yards breaks all ties.
+    const aEffectiveSwims = Math.min(a.currentPeriod.swims, WEEKLY_SWIM_GOAL);
+    const bEffectiveSwims = Math.min(b.currentPeriod.swims, WEEKLY_SWIM_GOAL);
+    if (bEffectiveSwims !== aEffectiveSwims) {
+      return bEffectiveSwims - aEffectiveSwims;
     }
     return b.currentPeriod.yards - a.currentPeriod.yards;
   });

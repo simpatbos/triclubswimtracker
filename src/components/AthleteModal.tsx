@@ -11,6 +11,7 @@ import {
   Flame,
   Calendar,
   Activity,
+  Check,
 } from 'lucide-react';
 import { Swim, Athlete } from '@/types';
 import {
@@ -19,8 +20,8 @@ import {
   calculatePacePer100Yd,
   getWeekBounds,
   getChallengeWeeklyBreakdown,
-  formatSwimsPerWeek,
   formatClubDateShort,
+  WEEKLY_SWIM_GOAL,
 } from '@/lib/date-utils';
 
 interface AthleteModalProps {
@@ -151,7 +152,16 @@ export function AthleteModal({
   const overallPace = calculatePacePer100Yd(totalSeconds, totalYards);
 
   const avgYardsPerWeek = Math.round(totalYards / challengeWeeksCount);
-  const avgSwimsPerWeek = currentSwims.length / challengeWeeksCount;
+  const thisWeekCompleted = thisWeekSwims.length >= WEEKLY_SWIM_GOAL;
+  const completedChallengeWeeksCount = weeklyBreakdown.filter(wb => wb.completed).length;
+  const allChallengeWeeksCompleted =
+    weeklyBreakdown.length > 0 && completedChallengeWeeksCount >= weeklyBreakdown.length;
+  const showHeaderCheck =
+    !loading && (viewMode === 'this_week' ? thisWeekCompleted : allChallengeWeeksCompleted);
+  const headerCheckTitle =
+    viewMode === 'this_week'
+      ? `Week completed (${thisWeekSwims.length} swims)`
+      : `Completed all ${weeklyBreakdown.length} challenge ${weeklyBreakdown.length === 1 ? 'week' : 'weeks'}`;
 
   return (
     <div
@@ -165,20 +175,35 @@ export function AthleteModal({
         {/* Modal Header */}
         <div className="p-4 sm:p-5 border-b border-neutral-200 flex items-center justify-between bg-neutral-50/80 flex-shrink-0">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-            <div className="relative w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden bg-white border-2 border-[#cfb991] shadow-xs flex-shrink-0">
-              {athlete?.profile_url ? (
-                <Image
-                  src={athlete.profile_url}
-                  alt={`${athlete.firstname} ${athlete.lastname}`}
-                  fill
-                  sizes="48px"
-                  className="object-cover"
-                  unoptimized
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-base sm:text-lg font-bold text-neutral-800">
-                  {athlete?.firstname?.[0] || 'P'}
-                </div>
+            <div className="relative flex-shrink-0">
+              <div
+                className={`relative w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden bg-white border-2 shadow-xs ${
+                  showHeaderCheck ? 'border-emerald-500' : 'border-[#cfb991]'
+                }`}
+              >
+                {athlete?.profile_url ? (
+                  <Image
+                    src={athlete.profile_url}
+                    alt={`${athlete.firstname} ${athlete.lastname}`}
+                    fill
+                    sizes="48px"
+                    className="object-cover"
+                    unoptimized
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-base sm:text-lg font-bold text-neutral-800">
+                    {athlete?.firstname?.[0] || 'P'}
+                  </div>
+                )}
+              </div>
+              {showHeaderCheck && (
+                <span
+                  title={headerCheckTitle}
+                  aria-label={headerCheckTitle}
+                  className="absolute -bottom-0.5 -right-0.5 w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-emerald-600 text-white border-2 border-white flex items-center justify-center shadow-xs"
+                >
+                  <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3 stroke-[3.5]" />
+                </span>
               )}
             </div>
             <div className="min-w-0">
@@ -299,17 +324,33 @@ export function AthleteModal({
 
                 <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-2 sm:p-3 text-center">
                   <div className="text-[9px] sm:text-[10px] uppercase font-bold text-neutral-500 tracking-wider mb-0.5 flex items-center justify-center gap-1">
-                    <Flame className="w-3 h-3 text-orange-600 flex-shrink-0" />
-                    <span className="truncate">{viewMode === 'challenge' ? 'Swims / Week' : 'Total Swims'}</span>
+                    {viewMode === 'challenge' ? (
+                      <Check className="w-3 h-3 text-emerald-600 stroke-[3] flex-shrink-0" />
+                    ) : (
+                      <Flame className="w-3 h-3 text-orange-600 flex-shrink-0" />
+                    )}
+                    <span className="truncate">{viewMode === 'challenge' ? 'Weeks Completed' : 'Total Swims'}</span>
                   </div>
                   <div className="text-sm sm:text-lg font-black text-neutral-900 font-mono truncate">
                     {viewMode === 'challenge' ? (
                       <>
-                        {formatSwimsPerWeek(avgSwimsPerWeek)}{' '}
-                        <span className="text-[9px] sm:text-[10px] text-neutral-500 font-normal">swims/wk</span>
+                        {completedChallengeWeeksCount}{' '}
+                        <span className="text-[9px] sm:text-[10px] text-neutral-500 font-normal">
+                          {completedChallengeWeeksCount === 1 ? 'wk' : 'wks'}
+                        </span>
                       </>
                     ) : (
-                      currentSwims.length
+                      <span className="inline-flex items-center justify-center gap-1">
+                        <span>{currentSwims.length}</span>
+                        {thisWeekCompleted && (
+                          <span
+                            title={`Week completed (${WEEKLY_SWIM_GOAL}+ swims)`}
+                            className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-600 text-white"
+                          >
+                            <Check className="w-2.5 h-2.5 stroke-[3.5]" />
+                          </span>
+                        )}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -328,12 +369,18 @@ export function AthleteModal({
               {/* View Mode 1: THIS WEEK -> Specific Swims as Items */}
               {viewMode === 'this_week' && (
                 <div>
-                  <div className="flex items-center justify-between mb-2 sm:mb-2.5">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-700 flex items-center gap-1.5">
+                  <div className="flex items-center justify-between gap-2 mb-2 sm:mb-2.5">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-700 flex items-center gap-1.5 flex-wrap">
                       <Calendar className="w-3.5 h-3.5 text-neutral-700" />
                       <span>This Week&apos;s Swims ({thisWeekSwims.length})</span>
+                      {thisWeekCompleted && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-300 text-emerald-800 text-[9px] font-bold normal-case tracking-normal">
+                          <Check className="w-2.5 h-2.5 stroke-[3]" />
+                          <span>Completed</span>
+                        </span>
+                      )}
                     </h4>
-                    <span className="text-[10px] sm:text-[11px] text-neutral-500 font-mono">
+                    <span className="text-[10px] sm:text-[11px] text-neutral-500 font-mono flex-shrink-0">
                       {formatClubDateShort(thisWeekStart)} - {formatClubDateShort(thisWeekEnd)}
                     </span>
                   </div>
@@ -412,13 +459,13 @@ export function AthleteModal({
                 </div>
               )}
 
-              {/* View Mode 2: SWIM CHALLENGE -> Completed challenge weeks */}
+              {/* View Mode 2: SWIM CHALLENGE -> Past challenge weeks */}
               {viewMode === 'challenge' && (
                 <div>
                   <div className="flex items-center justify-between mb-2 sm:mb-2.5">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-700 flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5 text-neutral-700" />
-                      <span>Completed Challenge Weeks</span>
+                      <span>Past Challenge Weeks</span>
                     </h4>
                   </div>
 
@@ -433,6 +480,15 @@ export function AthleteModal({
                             <span className="font-bold text-xs sm:text-sm text-neutral-900">
                               Week {wb.weekNumber}
                             </span>
+                            {wb.completed && (
+                              <span
+                                title={`Week completed (${wb.totalSwims} swims)`}
+                                aria-label={`Week ${wb.weekNumber} completed`}
+                                className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-600 text-white shadow-2xs flex-shrink-0"
+                              >
+                                <Check className="w-2.5 h-2.5 stroke-[3.5]" />
+                              </span>
+                            )}
                             {medals?.weeklyMedals?.[wb.weekNumber] === 'gold' && (
                               <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-amber-100/90 border border-amber-300 text-amber-950 text-[9px] font-black font-mono">
                                 <span>🥇</span>

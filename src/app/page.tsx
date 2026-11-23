@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
-import { Settings as SettingsIcon, Info, CheckCircle2, AlertCircle, History, Plus, User } from 'lucide-react';
+import { Settings as SettingsIcon, Info, CheckCircle2, AlertCircle, History, Plus, User, Check } from 'lucide-react';
 import { ClassicPodium } from '@/components/ClassicPodium';
 import { ClassicLeaderboardList } from '@/components/ClassicLeaderboardList';
 import { AthleteModal, clearAthleteModalCache } from '@/components/AthleteModal';
@@ -204,9 +204,18 @@ function SwimTracker() {
     setToast({ type: 'success', message: 'Swim workout logged successfully!' });
   };
 
-  const currentAthleteRank = athlete
-    ? leaderboardData.find(e => e.athlete.id === athlete.id)?.rank
+  const currentAthleteEntry = athlete
+    ? leaderboardData.find(e => e.athlete.id === athlete.id)
     : null;
+  const currentAthleteRank = currentAthleteEntry?.rank ?? null;
+  const isCurrentAthleteCompleted = Boolean(
+    leaderboardView === 'this_week'
+      ? currentAthleteEntry?.currentPeriod.weekCompleted
+      : currentAthleteEntry &&
+        (currentAthleteEntry.currentPeriod.totalChallengeWeeks ?? 0) > 0 &&
+        (currentAthleteEntry.currentPeriod.completedWeeks ?? 0) >=
+          (currentAthleteEntry.currentPeriod.totalChallengeWeeks ?? 0)
+  );
 
   // Determine active notification (from toast or url param)
   const activeMessage =
@@ -279,20 +288,40 @@ function SwimTracker() {
                   className="flex items-center gap-1.5 sm:gap-2 cursor-pointer group hover:opacity-90 transition-opacity min-w-0"
                   title="View your stats"
                 >
-                  <div className="relative w-6 h-6 sm:w-7 sm:h-7 rounded-full overflow-hidden bg-neutral-200 border border-neutral-300 flex-shrink-0 group-hover:border-[#cfb991] transition-colors">
-                    {athlete.profile_url ? (
-                      <Image
-                        src={athlete.profile_url}
-                        alt={`${athlete.firstname} ${athlete.lastname}`}
-                        fill
-                        sizes="28px"
-                        className="object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center font-bold text-xs text-neutral-700">
-                        {athlete.firstname?.[0] || 'P'}
-                      </div>
+                  <div className="relative flex-shrink-0">
+                    <div
+                      className={`relative w-6 h-6 sm:w-7 sm:h-7 rounded-full overflow-hidden bg-neutral-200 border transition-colors ${
+                        isCurrentAthleteCompleted
+                          ? 'border-emerald-500 group-hover:border-emerald-600'
+                          : 'border-neutral-300 group-hover:border-[#cfb991]'
+                      }`}
+                    >
+                      {athlete.profile_url ? (
+                        <Image
+                          src={athlete.profile_url}
+                          alt={`${athlete.firstname} ${athlete.lastname}`}
+                          fill
+                          sizes="28px"
+                          className="object-cover"
+                          unoptimized
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center font-bold text-xs text-neutral-700">
+                          {athlete.firstname?.[0] || 'P'}
+                        </div>
+                      )}
+                    </div>
+                    {isCurrentAthleteCompleted && (
+                      <span
+                        title={
+                          leaderboardView === 'this_week'
+                            ? 'Week completed (4+ swims)'
+                            : 'Completed all challenge weeks'
+                        }
+                        className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-600 text-white border-[1.5px] border-white flex items-center justify-center shadow-2xs"
+                      >
+                        <Check className="w-2 h-2 stroke-[3.5]" />
+                      </span>
                     )}
                   </div>
                   <span className="font-bold text-neutral-900 group-hover:underline flex items-center gap-1 truncate max-w-[85px] xs:max-w-[120px] sm:max-w-none text-xs">
@@ -374,8 +403,8 @@ function SwimTracker() {
           </h1>
           <p className="text-xs text-neutral-500 mt-0.5">
             {leaderboardView === 'this_week'
-              ? 'Ranked by swims this week (tiebreaker: yards)'
-              : 'Ranked by swims / week since challenge start (tiebreaker: yds / week)'}
+              ? '4 swims completes the week (tiebreaker: yards)'
+              : 'Ranked by completed weeks with 4+ swims (tiebreaker: yds / week)'}
           </p>
         </div>
 
